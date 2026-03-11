@@ -1,36 +1,65 @@
-interface discord-types {
-    /// variant data is JSON, check the [Discord Gateway Event docs] for the structures.
-    ///
-    /// [Discord Gateway Event docs]: https://discord.com/developers/docs/events/gateway-events
-    variant events {
-        interaction-create(list<u8>),
-        message-create(list<u8>),
-        thread-create(list<u8>),
-        thread-delete(list<u8>),
-        thread-list-sync(list<u8>),
-        thread-member-update(list<u8>),
-        thread-members-update(list<u8>),
-        thread-update(list<u8>),
+interface discord-import-types {
+    use core-types.{json};
+
+    type form = list<u8>;
+
+    flags discord-events {
+        message-create,
+        interaction-create,
+        thread-create,
+        thread-delete,
+        thread-list-sync,
+        thread-member-update,
+        thread-members-update,
+        thread-update,
     }
 
-    /// variant data last tuple entry might be JSON, check the Discord [Gateway Send Event] and HTTP Resource (like the [Message Resource docs]) docs for the structures.
+    type supported-discord-registrations = discord-events;
+
+    /// All registrations are opt in.
+    record discord-registrations {
+        events: option<discord-events>,
+        interactions: option<discord-registrations-interactions>,
+    }
+
+    /// The `application-commands` field its structure can be found in the Discord docs: https://docs.discord.com/developers/interactions/application-commands#application-command-object
+    record discord-registrations-interactions {
+        application-commands: option<list<json>>,
+        message-components: option<list<string>>,
+        modals: option<list<string>>,
+    }
+
+    record discord-registrations-result {
+        events: discord-events,
+        interactions: discord-registrations-result-interactions,
+    }
+
+    /// The fields return separate lists of successful and failed IDs.
     ///
-    /// [Gateway Send Event]: https://discord.com/developers/docs/events/gateway-events#send-events
-    /// [Message Resource]: https://discord.com/developers/docs/resources/message
-    variant requests {
+    /// The successful IDs gets mapped to host IDs which the plugin should use and then expect on events.
+    record discord-registrations-result-interactions {
+      application-commands: tuple<list<tuple<string, string>>, list<string>>,
+      message-components: tuple<list<tuple<string, string>>, list<string>>,
+      modals: tuple<list<tuple<string, string>>, list<string>>,
+    }
+
+    /// Check the Discord Gateway Send Event and HTTP Resource docs for the structures of the variant data: https://discord.com/developers/docs/events/gateway-events#send-events
+    ///
+    /// Message Resource Example: https://discord.com/developers/docs/resources/message
+    variant discord-requests {
         // Shard message sender commands
-        request-guild-members(tuple<u64, list<u8>>),
+        request-guild-members(tuple<u64, json>),
         request-soundboard-sounds(list<u64>),
-        update-voice-state(tuple<u64, list<u8>>),
-        update-presence(list<u8>),
+        update-voice-state(tuple<u64, json>),
+        update-presence(json),
 
         // HTTP requests
         add-thread-member(tuple<u64, u64>),
-        create-ban(tuple<u64, u64, list<u8>>),
-        create-forum-thread(tuple<u64, contents>),
-        create-message(tuple<u64, contents>),
-        create-thread(tuple<u64, list<u8>>),
-        create-thread-from-message(tuple<u64, u64, list<u8>>),
+        create-ban(tuple<u64, u64, json>),
+        create-forum-thread(tuple<u64, body>),
+        create-message(tuple<u64, body>),
+        create-thread(tuple<u64, json>),
+        create-thread-from-message(tuple<u64, u64, json>),
         delete-message(tuple<u64, u64>),
         get-active-threads(u64),
         get-channel(u64),
@@ -39,20 +68,54 @@ interface discord-types {
         get-public-archived-threads(tuple<option<string>, u64, option<u64>>),
         get-thread-member(tuple<u64, u64>),
         get-thread-members(tuple<option<u64>, u64, option<u32>, option<bool>>),
-        interaction-callback(tuple<u64, string, bool, list<u8>>),
+        interaction-callback(tuple<u64, string, bool, json>),
         join-thread(u64),
         leave-thread(u64),
         remove-thread-member(tuple<u64, u64>),
-        update-member(tuple<u64, u64, list<u8>>),
-        update-interaction-original(tuple<u64, string, list<u8>>),
+        update-member(tuple<u64, u64, json>),
+        update-interaction-original(tuple<u64, string, json>),
     }
 
-    // variant data is either a JSON body or a multipart form buffer.
-    variant contents {
-        json(list<u8>),
-        form(list<u8>),
+    variant body {
+        json(json),
+        form(form),
     }
 
-    /// responses is JSON.
-    type responses = list<u8>;
+    type discord-responses = json;
+}
+
+interface discord-export-types {
+    use core-types.{json};
+
+    /// Check the Discord Gateway Event docs for the structures of the variant data: https://discord.com/developers/docs/events/gateway-events
+    variant discord-events {
+        interaction-create(json),
+        message-create(json),
+        thread-create(json),
+        thread-delete(json),
+        thread-list-sync(json),
+        thread-member-update(json),
+        thread-members-update(json),
+        thread-update(json),
+    }
+}
+
+interface discord-import-functions {
+    use core-import-types.{error};
+    use discord-import-types.{discord-registrations, discord-registrations-result, discord-requests, discord-responses, supported-discord-registrations};
+
+    get-supported-discord-registrations: func() -> supported-discord-registrations;
+    /// Application Command registrations past the initialization phase are ignored.
+    ///
+    /// See the following Discord docs for more information: https://docs.discord.com/developers/interactions/application-commands#registering-a-command
+    discord-register: func(registrations: discord-registrations) -> discord-registrations-result;
+
+    discord-request: func(request: discord-requests) -> result<option<discord-responses>, error>;
+}
+
+interface discord-export-functions {
+    use core-export-types.{error};
+    use discord-export-types.{discord-events};
+
+    discord-event: func(event: discord-events) -> result<_, error>;
 }

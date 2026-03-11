@@ -1,7 +1,18 @@
 package discord-bot:plugin@0.1.0;
 
+/// Down the line once map<K, V> gets introduced to the component model
+/// multiple plugin types will rely on it instead of list<tuple<K, V>> or list<V>
+/// to enforce uniqueness on the plugin level.
+///
+/// Relevant PR in the component model repository: https://github.com/WebAssembly/component-model/pull/554
+/// Relevant PR in the Wasmtime repository: https://github.com/bytecodealliance/wasmtime/pull/12216
 world plugin {
-    import host-functions;
+    import core-import-functions;
+    export core-export-functions;
 
-    export plugin-functions;
+    import job-scheduler-import-functions;
+    export job-scheduler-export-functions;
+
+    import discord-import-functions;
+    export discord-export-functions;
 }

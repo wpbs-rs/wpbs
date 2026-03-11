@@ -1,10 +1,11 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 /* Copyright © 2026 Eduard Smet */
 
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 
+use anyhow::Result;
 use tracing::{error, info};
-use twilight_http::{request::Request, routing::Route};
+use twilight_http::{Client, request::Request, routing::Route};
 use twilight_model::{
     application::command::Command,
     id::{
@@ -17,11 +18,11 @@ use crate::{discord::DiscordBotClient, plugins::PluginRegistrationRequestsApplic
 
 impl DiscordBotClient {
     pub async fn application_command_registrations(
-        &self,
+        http_client: Arc<Client>,
         discord_application_command_registration_request: Vec<
             PluginRegistrationRequestsApplicationCommand,
         >,
-    ) -> Result<(), ()> {
+    ) -> Result<(Vec<String>, Vec<String>)> {
         let mut discord_commands = HashMap::new();
 
         let mut commands = HashMap::new();
@@ -44,7 +45,7 @@ impl DiscordBotClient {
                 .push((command.plugin_id, command_data.clone()));
         }
 
-        let application_id = match self.http_client.current_user_application().await {
+        let application_id = match http_client.current_user_application().await {
             Ok(response) => match response.model().await {
                 Ok(application) => application.id,
                 Err(err) => {
@@ -80,8 +81,7 @@ impl DiscordBotClient {
             }
         };
 
-        match self
-            .http_client
+        match http_client
             .request::<Vec<Command>>(global_discord_commands_request)
             .await
         {
@@ -110,7 +110,7 @@ impl DiscordBotClient {
         }
 
         // TODO: Endpoint is limited to 200 guilds per request, pagination needs to be implemented.
-        let current_user_guilds = match self.http_client.current_user_guilds().await {
+        let current_user_guilds = match http_client.current_user_guilds().await {
             Ok(response) => match response.model().await {
                 Ok(current_user_guilds) => current_user_guilds,
                 Err(err) => {
@@ -148,8 +148,7 @@ impl DiscordBotClient {
                 }
             };
 
-            match self
-                .http_client
+            match http_client
                 .request::<Vec<Command>>(guild_commands_request)
                 .await
             {
@@ -182,18 +181,16 @@ impl DiscordBotClient {
             if commands_by_name.1.len() == 1 {
                 let command = commands_by_name.1.remove(0);
 
-                match self
-                    .register_application_command(application_id, &mut discord_commands, &command.1)
-                    .await
+                match Self::register_application_command(
+                    http_client.clone(),
+                    application_id,
+                    &mut discord_commands,
+                    &command.1,
+                )
+                .await
                 {
                     Ok(command_id) => {
-                        self.plugin_registrations
-                            .write()
-                            .await
-                            .discord_events
-                            .interaction_create
-                            .application_commands
-                            .insert(command_id, command.0);
+                        // TODO: return value
                     }
                     Err(()) => {
                         error!(
@@ -208,22 +205,16 @@ impl DiscordBotClient {
                 for mut command in commands_by_name.1 {
                     command.1.name += format!("~{command_name_occurence_count}").as_str();
 
-                    match self
-                        .register_application_command(
-                            application_id,
-                            &mut discord_commands,
-                            &command.1,
-                        )
-                        .await
+                    match Self::register_application_command(
+                        http_client.clone(),
+                        application_id,
+                        &mut discord_commands,
+                        &command.1,
+                    )
+                    .await
                     {
                         Ok(command_id) => {
-                            self.plugin_registrations
-                                .write()
-                                .await
-                                .discord_events
-                                .interaction_create
-                                .application_commands
-                                .insert(command_id, command.0);
+                            // TODO: return value
                         }
                         Err(()) => {
                             error!(
@@ -238,14 +229,14 @@ impl DiscordBotClient {
             }
         }
 
-        self.delete_old_application_commands(application_id, &discord_commands)
+        Self::delete_old_application_commands(http_client, application_id, &discord_commands)
             .await?;
 
         Ok(())
     }
 
     async fn register_application_command(
-        &self,
+        http_client: Arc<Client>,
         application_id: Id<ApplicationMarker>,
         discord_commands: &mut HashMap<String, Command>,
         command: &Command,
@@ -304,7 +295,7 @@ impl DiscordBotClient {
             }
         };
 
-        match self.http_client.request::<Command>(request).await {
+        match http_client.request::<Command>(request).await {
             Ok(response) => match response.model().await {
                 Ok(command) => Ok(command.id.unwrap()),
                 Err(err) => {
@@ -326,7 +317,7 @@ impl DiscordBotClient {
     }
 
     async fn delete_old_application_commands(
-        &self,
+        http_client: Arc<Client>,
         application_id: Id<ApplicationMarker>,
         discord_commands: &HashMap<String, Command>,
     ) -> Result<(), ()> {
@@ -358,7 +349,7 @@ impl DiscordBotClient {
                 "Deleting the {} command, guild id: {:?}",
                 &discord_command.name, &discord_command.guild_id
             );
-            match self.http_client.request::<()>(request).await {
+            match http_client.request::<()>(request).await {
                 Ok(_) => (),
                 Err(err) => {
                     error!(

@@ -2,95 +2,36 @@
 /* Copyright © 2026 Eduard Smet */
 
 pub mod builder;
+pub mod permissions;
 pub mod registry;
 pub mod runtime;
 
 use std::collections::{HashMap, HashSet};
 
 use semver::Version;
-use serde::{Deserialize, Deserializer};
+use serde::Deserialize;
 use serde_yaml_ng::Value;
 use twilight_model::id::{Id, marker::CommandMarker};
 
-use crate::plugins::discord_bot::plugin::plugin_types::SupportedRegistrations;
+use crate::plugins::permissions::ConfigPluginPermissions;
 
 wasmtime::component::bindgen!({ imports: { default: async }, exports: { default: async } });
 
-#[derive(Clone, Deserialize)]
+#[derive(Deserialize)]
 pub struct ConfigPlugin {
     pub plugin: String,
     pub cache: Option<bool>,
-    #[serde(default = "ConfigPlugin::permissions_default")]
-    pub permissions: SupportedRegistrations,
+    pub permissions: ConfigPluginPermissions,
     pub environment: Option<HashMap<String, String>>,
     pub settings: Option<Value>,
-}
-
-impl ConfigPlugin {
-    fn permissions_default() -> SupportedRegistrations {
-        let mut supported_registrations = SupportedRegistrations::all();
-
-        supported_registrations &= !SupportedRegistrations::SHUTDOWN;
-
-        supported_registrations
-    }
-}
-
-impl<'de> Deserialize<'de> for SupportedRegistrations {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let mut supported_registrations = SupportedRegistrations::empty();
-
-        let supported_registration_strings = Vec::<String>::deserialize(deserializer)?;
-
-        for supported_registration_string in supported_registration_strings {
-            match supported_registration_string.to_uppercase().as_str() {
-                "DEPENDENCY_FUNCTIONS" => {
-                    supported_registrations |= SupportedRegistrations::DEPENDENCY_FUNCTIONS;
-                }
-                "DISCORD_EVENT_MESSAGE_CREATE" => {
-                    supported_registrations |= SupportedRegistrations::DISCORD_EVENT_MESSAGE_CREATE;
-                }
-                "DISCORD_EVENT_INTERACTION_CREATE" => {
-                    supported_registrations |=
-                        SupportedRegistrations::DISCORD_EVENT_INTERACTION_CREATE;
-                }
-                "DISCORD_EVENT_THREAD_CREATE" => {
-                    supported_registrations |= SupportedRegistrations::DISCORD_EVENT_THREAD_CREATE;
-                }
-                "DISCORD_EVENT_THREAD_DELETE" => {
-                    supported_registrations |= SupportedRegistrations::DISCORD_EVENT_THREAD_DELETE;
-                }
-                "DISCORD_EVENT_THREAD_LIST_SYNC" => {
-                    supported_registrations |=
-                        SupportedRegistrations::DISCORD_EVENT_THREAD_LIST_SYNC;
-                }
-                "DISCORD_EVENT_THREAD_MEMBER_UPDATE" => {
-                    supported_registrations |=
-                        SupportedRegistrations::DISCORD_EVENT_THREAD_MEMBER_UPDATE;
-                }
-                "DISCORD_EVENT_THREAD_MEMBERS_UPDATE" => {
-                    supported_registrations |=
-                        SupportedRegistrations::DISCORD_EVENT_THREAD_MEMBERS_UPDATE;
-                }
-                "DISCORD_EVENT_THREAD_UPDATE" => {
-                    supported_registrations |= SupportedRegistrations::DISCORD_EVENT_THREAD_UPDATE;
-                }
-                "SHUTDOWN" => {
-                    supported_registrations |= SupportedRegistrations::SHUTDOWN;
-                }
-                &_ => unimplemented!(),
-            }
-        }
-
-        Ok(supported_registrations)
-    }
 }
 
 pub struct AvailablePlugin {
     pub registry_id: String,
     pub id: String,
+    pub user_id: String,
     pub version: Version,
-    pub permissions: SupportedRegistrations,
+    pub permissions: ConfigPluginPermissions,
     pub environment: Option<HashMap<String, String>>,
     pub settings: Option<Value>,
 }

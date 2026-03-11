@@ -3,38 +3,34 @@
 
 use std::{env, path::Path};
 
-use tracing::{debug, error, info};
-
+use anyhow::{Context, Result, bail};
 use dotenvy;
+use tracing::{debug, info};
 
-pub fn load_env_file(env_file: &Path) -> Result<(), ()> {
+pub struct Secrets {
+    pub discord_bot_client: String,
+}
+
+pub fn load_env_file(env_file_path: &Path) -> Result<()> {
     info!("Loading the env file");
 
-    if let Err(err) = dotenvy::from_path(env_file) {
+    if let Err(err) = dotenvy::from_path(env_file_path) {
         if err.not_found() {
-            debug!("No env file found for the following path: {env_file:?}");
+            debug!("No env file found at: {env_file_path:?}");
             return Ok(());
         }
 
-        error!("An error occurred wile trying to load the env file: {err}");
-
-        return Err(());
+        bail!("An error occurred wile trying to load the env file: {err}");
     }
 
     Ok(())
 }
 
-pub fn validate() -> Result<String, ()> {
+pub fn get_secrets() -> Result<Secrets> {
     info!("Validating the environment variables (DISCORD_BOT_CLIENT_TOKEN)");
 
-    if let Ok(value) = env::var("DISCORD_BOT_CLIENT_TOKEN") {
-        debug!("DISCORD_BOT_CLIENT_TOKEN environment variable was found: {value:.3}... (redacted)");
-
-        Ok(value)
-    } else {
-        error!(
-            "The DISCORD_BOT_CLIENT_TOKEN environment variable was not set, contains an illegal character ('=' or '0') or was not valid unicode"
-        );
-        Err(())
-    }
+    Ok(Secrets {
+        discord_bot_client: env::var("DISCORD_BOT_CLIENT_TOKEN")
+            .context("Failed to load the DISCORD_BOT_CLIENT_TOKEN environment variable")?,
+    })
 }

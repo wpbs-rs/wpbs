@@ -5,21 +5,23 @@
 use std::os::unix::process::CommandExt;
 
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::VecDeque,
     env,
     ffi::OsString,
-    path::{Path, PathBuf},
+    path::Path,
     process::{Command, ExitCode, exit},
-    sync::{Arc, LazyLock},
+    sync::LazyLock,
 };
 
 use clap::Parser;
-use tokio::{signal, sync::RwLock};
+use fjall::{Database, PersistMode};
+use tokio::{signal, sync::RwLock, task::JoinHandle};
 use tracing::{error, info, warn};
 use tracing_appender::non_blocking::WorkerGuard;
 
 mod cli;
 mod config;
+mod database;
 mod discord;
 mod http;
 mod job_scheduler;
@@ -29,13 +31,11 @@ mod utils;
 use cli::{Cli, CliLogParameters};
 use config::Config;
 use discord::DiscordBotClient;
-use http::HttpClient;
 use job_scheduler::JobScheduler;
-use plugins::{
-    AvailablePlugin, PluginRegistrations, builder::PluginBuilder, registry, runtime::Runtime,
-};
+use plugins::{registry, runtime::Runtime};
+use utils::{channels::Channels, env::Secrets};
 
-use crate::utils::channels::Channels;
+use crate::utils::channels::{ChannelsCore, CoreMessages};
 
 #[derive(PartialEq)]
 enum Shutdown {
@@ -65,14 +65,18 @@ async fn main() -> ExitCode {
 
 async fn run() -> Result<(), ()> {
     let cli = Cli::parse();
-    //let mut tasks: Arc<Mutex<Vec<JoinHandle<()>>>> = Arc::new(Mutex::new(vec![])); // TODO: Rework shutdown
 
-    let (_guard, discord_bot_client_token, channels) =
-        initialization(cli.log_parameters, &cli.env_file)?;
+    let mut tasks: Vec<JoinHandle<()>> = vec![];
+
+    let (_guard, secrets, channels) = initialization(cli.log_parameters, &cli.env_file)?;
 
     let config = Config::new(&cli.config_file)?;
 
-    let available_plugins = registry_get_plugins(
+    let database = database::new(&cli.database_directory).map_err(|_| ())?;
+
+    tasks.push(start(database, channels.core));
+
+    let available_plugins = registry::registry_get_plugins(
         cli.http_client_timeout_seconds,
         config,
         cli.plugin_directory.clone(),
@@ -80,125 +84,111 @@ async fn run() -> Result<(), ()> {
     )
     .await?;
 
-    let plugin_registrations = Arc::new(RwLock::new(PluginRegistrations::new()));
-
-    let (discord_bot_client, shards) = DiscordBotClient::new(
-        discord_bot_client_token,
-        plugin_registrations.clone(),
-        channels.runtime.discord_bot_client_sender,
-        channels.discord_bot_client.receiver,
+    let discord_bot_client = DiscordBotClient::new(
+        secrets.discord_bot_client,
+        channels.discord_bot_client.core_tx,
+        channels.discord_bot_client.rx,
     )
     .await?;
 
-    info!("Creating the job scheduler");
-    let job_scheduler = JobScheduler::new(
-        plugin_registrations.clone(),
-        channels.runtime.job_scheduler_sender,
-        channels.job_scheduler.receiver,
-    )
-    .await?;
+    let job_scheduler =
+        JobScheduler::new(channels.job_scheduler.core_tx, channels.job_scheduler.rx)
+            .await
+            .map_err(|_| ())?;
 
-    info!("Creating the WASI runtime");
-    let runtime = Arc::new(Runtime::new(
-        channels.discord_bot_client.sender,
-        channels.job_scheduler.sender,
-        channels.runtime.receiver,
-    ));
+    let runtime = Runtime::new(channels.runtime.rx);
 
-    discord_bot_client.start(shards);
+    tasks.push(job_scheduler.start().await.map_err(|_| ())?);
 
-    job_scheduler.start().await?;
+    tasks.push(discord_bot_client.start());
 
-    plugin_initializations(
-        runtime.clone(),
-        available_plugins,
-        plugin_registrations,
-        &cli.plugin_directory,
-    )
-    .await?;
+    runtime
+        .initialize_plugins(
+            available_plugins,
+            channels.runtime.core_tx,
+            &cli.plugin_directory,
+        )
+        .await?;
 
-    Runtime::start(runtime.clone());
+    tasks.push(runtime.start());
 
-    shutdown(runtime).await
+    shutdown(tasks).await
 }
 
 fn initialization(
     cli_log_parameters: CliLogParameters,
     env_file: &Path,
-) -> Result<(Option<WorkerGuard>, String, Channels), ()> {
+) -> Result<(Option<WorkerGuard>, Secrets, Channels), ()> {
     let guard = utils::logger::new(cli_log_parameters)?;
 
-    utils::env::load_env_file(env_file)?;
+    utils::env::load_env_file(env_file).map_err(|_| ())?;
 
-    let discord_bot_client_token = utils::env::validate()?;
+    let secrets = utils::env::get_secrets().map_err(|_| ())?;
 
     let channels = utils::channels::new();
 
-    Ok((guard, discord_bot_client_token, channels))
+    Ok((guard, secrets, channels))
 }
 
-async fn registry_get_plugins(
-    http_client_timeout_seconds: u64,
-    config: Config,
-    plugin_directory: PathBuf,
-    cache: bool,
-) -> Result<HashMap<String, AvailablePlugin>, ()> {
-    let http_client = Arc::new(HttpClient::new(http_client_timeout_seconds)?);
+fn start(database: Database, mut channels_core: ChannelsCore) -> JoinHandle<()> {
+    tokio::spawn(async move {
+        while let Some(core_message) = channels_core.rx.recv().await {
+            match core_message {
+                CoreMessages::DatabaseModule(database_message) => {
+                    let database = database.clone();
 
-    registry::get_plugins(http_client, config, plugin_directory, cache).await
-}
-
-async fn plugin_initializations(
-    runtime: Arc<Runtime>,
-    available_plugins: HashMap<String, AvailablePlugin>,
-    plugin_registrations: Arc<RwLock<PluginRegistrations>>,
-    config_directory: &Path,
-) -> Result<(), ()> {
-    info!("Creating the WASI plugin builder");
-    let plugin_builder = PluginBuilder::new();
-
-    info!("Initializing the plugins");
-    Runtime::initialize_plugins(
-        runtime,
-        plugin_builder,
-        available_plugins,
-        plugin_registrations,
-        config_directory,
-    )
-    .await
-}
-
-async fn shutdown(runtime: Arc<Runtime>) -> Result<(), ()> {
-    let cancellation_token = runtime.cancellation_token.clone();
-
-    tokio::select! {
-            result = async move {
-            if let Err(err) = signal::ctrl_c().await {
-                error!(
-                    "Failed to listen for the terminal interrupt signal, error: {}",
-                    &err
-                );
-                return Err(());
+                    tokio::spawn(async {
+                        database::handle_action(database, database_message);
+                    });
+                }
+                CoreMessages::JobSchedulerModule(job_scheduler_message) => {
+                    channels_core.job_scheduler_tx.send(job_scheduler_message);
+                }
+                CoreMessages::DiscordBotClientModule(discord_bot_client_message) => {
+                    channels_core
+                        .discord_bot_client_tx
+                        .send(discord_bot_client_message);
+                }
+                CoreMessages::RuntimeModule(runtime_message) => {
+                    channels_core.runtime_tx.send(runtime_message);
+                }
+                CoreMessages::Shutdown(shutdown) => todo!(), // TODO: Figure shutdown out
             }
+        }
 
-            info!("Terminal interrupt signal received, send another to force immediate shutdown");
+        database::persist(database, PersistMode::SyncAll);
+    })
+}
 
-            tokio::spawn(async {
-                signal::ctrl_c()
-                    .await
-                    .expect("failed to listen for the terminal interrupt signal");
+async fn shutdown(mut tasks: Vec<JoinHandle<()>>) -> Result<(), ()> {
+    tokio::spawn(async {
+        if let Err(err) = signal::ctrl_c().await {
+            error!(
+                "Failed to listen for the terminal interrupt signal, error: {}",
+                &err
+            );
+            return Err(());
+        }
 
-                warn!("Second terminal interrupt signal received, forcing immediate shutdown");
-                exit(130);
-            });
+        info!("Terminal interrupt signal received, send another to force immediate shutdown");
 
-            runtime.shutdown(Shutdown::SigInt).await;
+        tokio::spawn(async {
+            signal::ctrl_c()
+                .await
+                .expect("failed to listen for the terminal interrupt signal");
 
-            Ok(())
+            warn!("Second terminal interrupt signal received, forcing immediate shutdown");
+            exit(130);
+        });
 
-        } => {result}
-        () = cancellation_token.cancelled() => {Ok(())}
+        Ok(())
+    });
+
+    for task in tasks.drain(..) {
+        task.await;
     }
+
+    Ok(())
 }
 
 fn restart() {

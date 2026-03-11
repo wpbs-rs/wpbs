@@ -1,0 +1,62 @@
+interface core-types {
+    type json = list<u8>;
+}
+
+interface core-import-types {
+    type error = string;
+
+    enum log-levels {
+        trace,
+        debug,
+        info,
+        warn,
+        error,
+    }
+
+    flags supported-core-registrations {
+        dependency-functions,
+        shutdown,
+    }
+
+    /// All registrations are opt in.
+    record core-registrations {
+        dependency-functions: option<list<string>>,
+    }
+
+    /// The `dependency-functions` field returns separate lists of successful and failed IDs.
+    ///
+    /// The `shutdown` field returns a result to indicate if the shutdown registration was accepted or not.
+    record core-registrations-result {
+        dependency-functions: option<tuple<list<string>, list<string>>>,
+    }
+}
+
+interface core-export-types {
+    type error = string;
+}
+
+interface core-import-functions {
+    use core-import-types.{error, log-levels, core-registrations, core-registrations-result, supported-core-registrations};
+
+    get-supported-registrations: func() -> supported-core-registrations;
+    register: func(registrations: core-registrations) -> core-registrations-result;
+    log: func(level: log-levels, message: string);
+
+    shutdown: func(restart: bool) -> result<_, error>;
+
+    /// The `params` parameter and result ok value are bytes. The serialized format has to be decided between plugins.
+    dependency-function: func(dependency-id: string, function-id: string, params: list<u8>) -> result<list<u8>, error>;
+}
+
+interface core-export-functions {
+    use core-export-types.{error};
+    use core-types.{json};
+
+    initialization: func(settings: json) -> result<_, error>;
+
+    shutdown: func() -> result<_, error>;
+
+    /// The `params` parameter and result ok value are bytes. The serialized format has to be decided between plugins.
+    dependency-function: func(function-id: string, params: list<u8>) -> result<list<u8>, error>;
+}
+

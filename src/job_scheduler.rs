@@ -1,147 +1,95 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 /* Copyright © 2026 Eduard Smet */
 
-use std::sync::Arc;
-
+use anyhow::Result;
 use tokio::{
-    sync::{
-        Mutex, RwLock,
-        mpsc::{Receiver, Sender},
-    },
+    sync::mpsc::{UnboundedReceiver, UnboundedSender},
     task::JoinHandle,
 };
-use tokio_cron_scheduler::{Job, JobScheduler as TCScheduler};
-use tracing::{error, info};
+use tokio_cron_scheduler::{Job, JobScheduler as TokioCronScheduler};
+use tracing::info;
+use uuid::Uuid;
 
-use crate::{
-    plugins::{PluginRegistrationRequestsScheduledJob, PluginRegistrations},
-    utils::channels::{JobSchedulerMessages, RuntimeMessages},
+use crate::utils::channels::{
+    CoreMessages, JobSchedulerMessages, RuntimeMessages, RuntimeMessagesJobScheduler,
 };
 
 pub struct JobScheduler {
-    tokio_cron_scheduler: Arc<RwLock<TCScheduler>>,
-    plugin_registrations: Arc<RwLock<PluginRegistrations>>,
-    runtime_tx: Arc<Sender<RuntimeMessages>>,
-    runtime_rx: Arc<Mutex<Receiver<JobSchedulerMessages>>>,
+    tokio_cron_scheduler: TokioCronScheduler,
+    core_tx: UnboundedSender<CoreMessages>,
+    rx: UnboundedReceiver<JobSchedulerMessages>,
 }
 
 impl JobScheduler {
     pub async fn new(
-        plugin_registrations: Arc<RwLock<PluginRegistrations>>,
-        runtime_tx: Sender<RuntimeMessages>,
-        runtime_rx: Receiver<JobSchedulerMessages>,
-    ) -> Result<Self, ()> {
-        match TCScheduler::new().await {
-            Ok(job_scheduler) => Ok(JobScheduler {
-                tokio_cron_scheduler: Arc::new(RwLock::new(job_scheduler)),
-                plugin_registrations,
-                runtime_tx: Arc::new(runtime_tx),
-                runtime_rx: Arc::new(Mutex::new(runtime_rx)),
-            }),
-            Err(err) => {
-                error!(
-                    "Something went wrong while creating a new instance of the job scheduler, error {}",
-                    &err
-                );
-                Err(())
-            }
-        }
+        core_tx: UnboundedSender<CoreMessages>,
+        rx: UnboundedReceiver<JobSchedulerMessages>,
+    ) -> Result<Self> {
+        info!("Creating the job scheduler");
+
+        Ok(JobScheduler {
+            tokio_cron_scheduler: TokioCronScheduler::new().await?,
+            core_tx,
+            rx,
+        })
     }
 
-    pub async fn scheduled_job_registrations(
-        &self,
-        initialized_plugin_registrations_scheduled_jobs: Vec<
-            PluginRegistrationRequestsScheduledJob,
-        >,
-    ) {
-        for scheduled_job in &initialized_plugin_registrations_scheduled_jobs {
-            for cron in &scheduled_job.crons {
-                info!(
-                    "Scheduled Job {} from the {} plugin requested to be registered.",
-                    &scheduled_job.id, &scheduled_job.plugin_id
-                );
-
-                let runtime_tx = self.runtime_tx.clone();
-                let plugin_id = scheduled_job.plugin_id.clone();
-                let internal_id = scheduled_job.id.clone();
-
-                let job = match Job::new_async_tz(
-                    cron.clone(),
-                    chrono::Local,
-                    move |_uuid, _lock| {
-                        let runtime_tx = runtime_tx.clone();
-                        let plugin_id = plugin_id.clone();
-                        let internal_id = internal_id.clone();
-
-                        Box::pin(async move {
-                            let _ = runtime_tx
-                                .send(RuntimeMessages::CallScheduledJob(plugin_id, internal_id))
-                                .await;
-                        })
-                    },
-                ) {
-                    Ok(job) => job,
-                    Err(err) => {
-                        error!(
-                            "Something went wrong while adding {} job from the {} plugin to the job scheduler, error: {}",
-                            &scheduled_job.id, &scheduled_job.plugin_id, &err
-                        );
-                        continue;
-                    }
-                };
-
-                match self.tokio_cron_scheduler.read().await.add(job).await {
-                    Ok(uuid) => {
-                        self.plugin_registrations
-                            .write()
-                            .await
-                            .scheduled_jobs
-                            .insert(
-                                uuid.as_u128(),
-                                (scheduled_job.plugin_id.clone(), scheduled_job.id.clone()),
-                            );
-                    }
-                    Err(err) => {
-                        error!(
-                            "Something went wrong while adding {} job from the {} plugin to the job scheduler, error: {}",
-                            &scheduled_job.id, &scheduled_job.plugin_id, &err
-                        );
-                    }
-                }
-            }
-        }
-    }
-
-    pub async fn start(self) -> Result<JoinHandle<()>, ()> {
-        if let Err(err) = self.tokio_cron_scheduler.read().await.start().await {
-            error!(
-                "Something went wrong while starting the job scheduler, error: {}",
-                &err
-            );
-            return Err(());
-        }
-
-        let job_scheduler = Arc::new(self);
+    pub async fn start(mut self) -> Result<JoinHandle<()>> {
+        self.tokio_cron_scheduler.start().await?;
 
         Ok(tokio::spawn(async move {
-            while let Some(message) = job_scheduler.runtime_rx.lock().await.recv().await {
+            while let Some(message) = self.rx.recv().await {
                 match message {
-                    JobSchedulerMessages::RegisterScheduledJobs(scheduled_jobs) => {
-                        job_scheduler
-                            .scheduled_job_registrations(scheduled_jobs)
-                            .await;
+                    JobSchedulerMessages::AddJob(plugin_id, cron, result) => {
+                        let tokio_cron_scheduler = self.tokio_cron_scheduler.clone();
+                        let core_tx = self.core_tx.clone();
+
+                        tokio::spawn(async move {
+                            result.send(
+                                Self::add_job(tokio_cron_scheduler, core_tx, plugin_id, cron).await,
+                            );
+                        });
                     }
-                    JobSchedulerMessages::Shutdown(is_done) => {
-                        let _ = job_scheduler
-                            .tokio_cron_scheduler
-                            .write()
-                            .await
-                            .shutdown()
-                            .await;
-                        let _ = is_done.send(());
+                    JobSchedulerMessages::RemoveJob(uuid, result) => {
+                        let tokio_cron_scheduler = self.tokio_cron_scheduler.clone();
+
+                        tokio::spawn(async move {
+                            result.send(Self::remove_job(tokio_cron_scheduler, uuid).await);
+                        });
                     }
                 }
             }
+
+            let _ = self.tokio_cron_scheduler.shutdown().await;
         }))
+    }
+
+    async fn add_job(
+        tokio_cron_scheduler: TokioCronScheduler,
+        core_tx: UnboundedSender<CoreMessages>,
+        plugin_id: Uuid,
+        cron: String,
+    ) -> Result<Uuid> {
+        info!(
+            "Scheduled Job at {cron} cron from the {plugin_id} plugin requested to be registered"
+        );
+
+        let job = Job::new_async_tz(cron.clone(), chrono::Local, move |job_id, _lock| {
+            let core_tx = core_tx.clone();
+
+            Box::pin(async move {
+                let _ = core_tx.send(CoreMessages::RuntimeModule(RuntimeMessages::JobScheduler(
+                    RuntimeMessagesJobScheduler::CallScheduledJob(plugin_id, job_id),
+                )));
+            })
+        })?;
+
+        Ok(tokio_cron_scheduler.add(job).await?)
+    }
+
+    async fn remove_job(tokio_cron_scheduler: TokioCronScheduler, uuid: Uuid) -> Result<()> {
+        info!("Removing scheduled Job {uuid}");
+
+        Ok(tokio_cron_scheduler.remove(&uuid).await?)
     }
 }

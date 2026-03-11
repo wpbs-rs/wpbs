@@ -39,6 +39,9 @@ pub struct Cli {
     #[arg(action=ArgAction::Set, default_value_t = true, short = 'C', long, value_name = "BOOL", help = "Enable the usage of cached plugins", long_help = None, hide_possible_values = true)]
     pub cache: bool,
 
+    #[arg(default_value = "./database", short, long, value_name = "DIRECTORY PATH", help = "The path to the program its database", long_help = None)]
+    pub database_directory: PathBuf,
+
     #[arg(default_value_t = 15, short = 't', long, value_name = "SECONDS", help = "The amount of seconds after which the HTTP client should timeout", long_help = None)]
     pub http_client_timeout_seconds: u64,
 }

@@ -1,52 +1,47 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 /* Copyright © 2026 Eduard Smet */
 
-use twilight_http::{request::Request, routing::Route};
-use twilight_model::{
-    gateway::{
-        OpCode,
-        payload::outgoing::{
-            RequestGuildMembers, UpdatePresence, UpdateVoiceState,
-            request_guild_members::RequestGuildMembersInfo, update_presence::UpdatePresencePayload,
-            update_voice_state::UpdateVoiceStateInfo,
-        },
+use std::sync::Arc;
+
+use anyhow::{Result, anyhow, bail};
+use twilight_gateway::MessageSender;
+use twilight_http::{Client, request::Request, routing::Route};
+use twilight_model::gateway::{
+    OpCode,
+    payload::outgoing::{
+        RequestGuildMembers, UpdatePresence, UpdateVoiceState,
+        request_guild_members::RequestGuildMembersInfo, update_presence::UpdatePresencePayload,
+        update_voice_state::UpdateVoiceStateInfo,
     },
-    id::Id,
 };
 
 use crate::{
     discord::DiscordBotClient,
     plugins::discord_bot::plugin::{
-        discord_types::Contents,
-        host_functions::{DiscordRequests, DiscordResponses},
+        discord_import_functions::{DiscordRequests, DiscordResponses},
+        discord_import_types::Body,
     },
 };
 
 impl DiscordBotClient {
     #[allow(clippy::too_many_lines)]
     pub async fn request(
-        &self,
+        http_client: Arc<Client>,
+        shard_message_senders: Arc<Vec<MessageSender>>,
         request: DiscordRequests,
-    ) -> Result<Option<DiscordResponses>, String> {
+    ) -> Result<Option<DiscordResponses>> {
         let request = match request {
             // Shard message sender commands
             DiscordRequests::RequestGuildMembers((guild_id, body)) => {
-                let guild_id = Id::new(guild_id);
-
-                let guild_shard_message_sender = if let Some(guild_shard_message_sender) =
-                    self.shard_message_senders.read().await.get(&guild_id)
-                {
-                    guild_shard_message_sender.clone()
-                } else {
-                    return Err(String::from("No guild found"));
-                };
+                let guild_shard_message_sender =
+                    Self::get_guild_shard_id(&shard_message_senders, guild_id);
 
                 let d = match sonic_rs::from_slice::<RequestGuildMembersInfo>(&body) {
                     Ok(d) => d,
                     Err(err) => {
-                        return Err(format!(
+                        bail!(
                             "Something went wrong while deserializing RequestGuildMembersInfo, error: {err}",
-                        ));
+                        );
                     }
                 };
 
@@ -60,27 +55,18 @@ impl DiscordBotClient {
                 None
             }
             DiscordRequests::RequestSoundboardSounds(_guild_ids) => {
-                return Err(String::from(
-                    "RequestSoundboardSounds has not yet been implemented in Twilight.",
-                ));
+                bail!("RequestSoundboardSounds has not yet been implemented in Twilight.",);
             }
             DiscordRequests::UpdateVoiceState((guild_id, body)) => {
-                let guild_id = Id::new(guild_id);
-
-                let guild_shard_message_sender = if let Some(guild_shard_message_sender) =
-                    self.shard_message_senders.read().await.get(&guild_id)
-                {
-                    guild_shard_message_sender.clone()
-                } else {
-                    return Err(String::from("No guild found"));
-                };
+                let guild_shard_message_sender =
+                    Self::get_guild_shard_id(&shard_message_senders, guild_id);
 
                 let d = match sonic_rs::from_slice::<UpdateVoiceStateInfo>(&body) {
                     Ok(d) => d,
                     Err(err) => {
-                        return Err(format!(
+                        bail!(
                             "Something went wrong while deserializing RequestGuildMembersInfo, error: {err}",
-                        ));
+                        );
                     }
                 };
 
@@ -94,20 +80,14 @@ impl DiscordBotClient {
                 None
             }
             DiscordRequests::UpdatePresence(body) => {
-                let guild_shard_message_sender = if let Some(guild_shard_message_sender) =
-                    self.shard_message_senders.read().await.values().next()
-                {
-                    guild_shard_message_sender.clone()
-                } else {
-                    return Err(String::from("No guild found"));
-                };
+                let guild_shard_message_sender = shard_message_senders.get(0).unwrap();
 
                 let d = match sonic_rs::from_slice::<UpdatePresencePayload>(&body) {
                     Ok(d) => d,
                     Err(err) => {
-                        return Err(format!(
+                        bail!(
                             "Something went wrong while deserializing RequestGuildMembersInfo, error: {err}",
-                        ));
+                        );
                     }
                 };
 
@@ -131,9 +111,9 @@ impl DiscordBotClient {
                 {
                     Ok(request) => Some(request),
                     Err(err) => {
-                        return Err(format!(
+                        bail!(
                             "Something went wrong while building a Discord request, error: {err}"
-                        ));
+                        );
                     }
                 }
             }
@@ -144,9 +124,9 @@ impl DiscordBotClient {
                 {
                     Ok(request) => Some(request),
                     Err(err) => {
-                        return Err(format!(
+                        bail!(
                             "Something went wrong while building a Discord request, error: {err}"
-                        ));
+                        );
                     }
                 }
             }
@@ -154,11 +134,11 @@ impl DiscordBotClient {
                 let request_builder = Request::builder(&Route::CreateForumThread { channel_id });
 
                 let request_builder = match content {
-                    Contents::Json(bytes) => request_builder.body(bytes),
-                    Contents::Form(buffer) => match request_builder.multipart(buffer) {
+                    Body::Json(bytes) => request_builder.body(bytes),
+                    Body::Form(buffer) => match request_builder.multipart(buffer) {
                         Ok(request) => request,
                         Err(err) => {
-                            return Err(err.to_string());
+                            bail!(err);
                         }
                     },
                 };
@@ -166,9 +146,9 @@ impl DiscordBotClient {
                 match request_builder.build() {
                     Ok(request) => Some(request),
                     Err(err) => {
-                        return Err(format!(
+                        bail!(
                             "Something went wrong while building a Discord request, error: {err}"
-                        ));
+                        );
                     }
                 }
             }
@@ -176,11 +156,11 @@ impl DiscordBotClient {
                 let request_builder = Request::builder(&Route::CreateMessage { channel_id });
 
                 let request_builder = match content {
-                    Contents::Json(bytes) => request_builder.body(bytes),
-                    Contents::Form(buffer) => match request_builder.multipart(buffer) {
+                    Body::Json(bytes) => request_builder.body(bytes),
+                    Body::Form(buffer) => match request_builder.multipart(buffer) {
                         Ok(request) => request,
                         Err(err) => {
-                            return Err(err.to_string());
+                            bail!(err);
                         }
                     },
                 };
@@ -188,9 +168,9 @@ impl DiscordBotClient {
                 match request_builder.build() {
                     Ok(request) => Some(request),
                     Err(err) => {
-                        return Err(format!(
+                        bail!(
                             "Something went wrong while building a Discord request, error: {err}"
-                        ));
+                        );
                     }
                 }
             }
@@ -201,9 +181,9 @@ impl DiscordBotClient {
                 {
                     Ok(request) => Some(request),
                     Err(err) => {
-                        return Err(format!(
+                        bail!(
                             "Something went wrong while building a Discord request, error: {err}"
-                        ));
+                        );
                     }
                 }
             }
@@ -217,9 +197,9 @@ impl DiscordBotClient {
                 {
                     Ok(request) => Some(request),
                     Err(err) => {
-                        return Err(format!(
+                        bail!(
                             "Something went wrong while building a Discord request, error: {err}"
-                        ));
+                        );
                     }
                 }
             }
@@ -232,9 +212,9 @@ impl DiscordBotClient {
                 {
                     Ok(request) => Some(request),
                     Err(err) => {
-                        return Err(format!(
+                        bail!(
                             "Something went wrong while building a Discord request, error: {err}"
-                        ));
+                        );
                     }
                 }
             }
@@ -242,9 +222,9 @@ impl DiscordBotClient {
                 match Request::builder(&Route::GetActiveThreads { guild_id }).build() {
                     Ok(request) => Some(request),
                     Err(err) => {
-                        return Err(format!(
+                        bail!(
                             "Something went wrong while building a Discord request, error: {err}"
-                        ));
+                        );
                     }
                 }
             }
@@ -252,9 +232,9 @@ impl DiscordBotClient {
                 match Request::builder(&Route::GetChannel { channel_id }).build() {
                     Ok(request) => Some(request),
                     Err(err) => {
-                        return Err(format!(
+                        bail!(
                             "Something went wrong while building a Discord request, error: {err}"
-                        ));
+                        );
                     }
                 }
             }
@@ -268,9 +248,9 @@ impl DiscordBotClient {
                 {
                     Ok(request) => Some(request),
                     Err(err) => {
-                        return Err(format!(
+                        bail!(
                             "Something went wrong while building a Discord request, error: {err}"
-                        ));
+                        );
                     }
                 }
             }
@@ -284,9 +264,9 @@ impl DiscordBotClient {
                 {
                     Ok(request) => Some(request),
                     Err(err) => {
-                        return Err(format!(
+                        bail!(
                             "Something went wrong while building a Discord request, error: {err}"
-                        ));
+                        );
                     }
                 }
             }
@@ -300,9 +280,9 @@ impl DiscordBotClient {
                 {
                     Ok(request) => Some(request),
                     Err(err) => {
-                        return Err(format!(
+                        bail!(
                             "Something went wrong while building a Discord request, error: {err}"
-                        ));
+                        );
                     }
                 }
             }
@@ -315,9 +295,9 @@ impl DiscordBotClient {
                 {
                     Ok(request) => Some(request),
                     Err(err) => {
-                        return Err(format!(
+                        bail!(
                             "Something went wrong while building a Discord request, error: {err}"
-                        ));
+                        );
                     }
                 }
             }
@@ -332,9 +312,9 @@ impl DiscordBotClient {
                 {
                     Ok(request) => Some(request),
                     Err(err) => {
-                        return Err(format!(
+                        bail!(
                             "Something went wrong while building a Discord request, error: {err}"
-                        ));
+                        );
                     }
                 }
             }
@@ -354,9 +334,9 @@ impl DiscordBotClient {
                 {
                     Ok(request) => Some(request),
                     Err(err) => {
-                        return Err(format!(
+                        bail!(
                             "Something went wrong while building a Discord request, error: {err}"
-                        ));
+                        );
                     }
                 }
             }
@@ -364,9 +344,9 @@ impl DiscordBotClient {
                 match Request::builder(&Route::JoinThread { channel_id }).build() {
                     Ok(request) => Some(request),
                     Err(err) => {
-                        return Err(format!(
+                        bail!(
                             "Something went wrong while building a Discord request, error: {err}"
-                        ));
+                        );
                     }
                 }
             }
@@ -374,9 +354,9 @@ impl DiscordBotClient {
                 match Request::builder(&Route::LeaveThread { channel_id }).build() {
                     Ok(request) => Some(request),
                     Err(err) => {
-                        return Err(format!(
+                        bail!(
                             "Something went wrong while building a Discord request, error: {err}"
-                        ));
+                        );
                     }
                 }
             }
@@ -389,9 +369,9 @@ impl DiscordBotClient {
                 {
                     Ok(request) => Some(request),
                     Err(err) => {
-                        return Err(format!(
+                        bail!(
                             "Something went wrong while building a Discord request, error: {err}"
-                        ));
+                        );
                     }
                 }
             }
@@ -402,9 +382,9 @@ impl DiscordBotClient {
                 {
                     Ok(request) => Some(request),
                     Err(err) => {
-                        return Err(format!(
+                        bail!(
                             "Something went wrong while building a Discord request, error: {err}"
-                        ));
+                        );
                     }
                 }
             }
@@ -422,23 +402,32 @@ impl DiscordBotClient {
                 {
                     Ok(request) => Some(request),
                     Err(err) => {
-                        return Err(format!(
+                        bail!(
                             "Something went wrong while building a Discord request, error: {err}"
-                        ));
+                        );
                     }
                 }
             }
         };
 
         if let Some(request) = request {
-            match self.http_client.request::<Vec<u8>>(request).await {
+            match http_client.request::<Vec<u8>>(request).await {
                 Ok(response) => Ok(Some(response.bytes().await.unwrap().clone())),
-                Err(err) => Err(format!(
+                Err(err) => Err(anyhow!(
                     "Something went wrong while making a Discord request, error: {err}"
                 )),
             }
         } else {
             Ok(None)
         }
+    }
+
+    fn get_guild_shard_id(
+        shard_message_senders: &Arc<Vec<MessageSender>>,
+        guild_id: u64,
+    ) -> &MessageSender {
+        shard_message_senders
+            .get((guild_id >> 22) as usize % shard_message_senders.len())
+            .unwrap()
     }
 }

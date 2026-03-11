@@ -1,0 +1,36 @@
+interface job-scheduler-import-types {
+    flags supported-job-scheduler-registrations {
+        scheduled-jobs,
+    }
+
+    /// All registrations are opt in.
+    ///
+    /// The `scheduled-jobs` field list entries should exist out of cron values.
+    ///
+    /// cron: https://en.wikipedia.org/wiki/Cron
+    record job-scheduler-registrations {
+        scheduled-jobs: list<string>,
+    }
+
+    /// The `scheduled-jobs` field returns separate lists of successful and failed cron values.
+    record job-scheduler-registrations-result {
+        scheduled-jobs: tuple<list<string>, list<string>>,
+    }
+}
+
+interface job-scheduler-export-types {
+
+}
+
+interface job-scheduler-import-functions {
+    use job-scheduler-import-types.{job-scheduler-registrations, job-scheduler-registrations-result, supported-job-scheduler-registrations};
+
+    get-supported-registrations: func() -> supported-job-scheduler-registrations;
+    register: func(registrations: job-scheduler-registrations) -> job-scheduler-registrations-result;
+}
+
+interface job-scheduler-export-functions {
+    use core-export-types.{error};
+
+    scheduled-job: func(job-id: string) -> result<_, error>;
+}

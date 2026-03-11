@@ -1,66 +1,48 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 /* Copyright © 2026 Eduard Smet */
 
-use std::{any::Any, sync::Arc};
+use std::sync::Arc;
 
+use tokio::sync::mpsc::UnboundedSender;
 use tracing::{debug, error};
 use twilight_gateway::Event;
 use twilight_model::application::interaction::InteractionData;
 
 use crate::{
     discord::DiscordBotClient,
-    plugins::discord_bot::plugin::discord_types::Events as DiscordEvents,
-    utils::channels::RuntimeMessages,
+    plugins::discord_bot::plugin::discord_export_types::DiscordEvents,
+    utils::channels::{CoreMessages, RuntimeMessages, RuntimeMessagesDiscord},
 };
 
 impl DiscordBotClient {
     #[allow(clippy::too_many_lines)]
-    pub async fn handle_event(discord_bot_client: Arc<DiscordBotClient>, event: Event) {
+    pub async fn handle_event(core_tx: Arc<UnboundedSender<CoreMessages>>, event: Event) {
         match event {
             Event::InteractionCreate(interaction_create) => {
                 match interaction_create.data.as_ref() {
                     Some(InteractionData::ApplicationCommand(command_data)) => {
-                        let initialized_plugins =
-                            discord_bot_client.plugin_registrations.read().await;
+                        // TODO: get value
 
-                        let Some(plugin) = initialized_plugins
-                            .discord_events
-                            .interaction_create
-                            .application_commands
-                            .get(&command_data.id)
-                        else {
-                            return;
-                        };
-
-                        let _ = discord_bot_client
-                            .runtime_tx
-                            .send(RuntimeMessages::CallDiscordEvent(
-                                plugin.clone(),
-                                DiscordEvents::InteractionCreate(
-                                    sonic_rs::to_vec(&interaction_create).unwrap(),
+                        let _ = core_tx
+                            .send(CoreMessages::Runtime(RuntimeMessages::Discord(
+                                RuntimeMessagesDiscord::CallDiscordEvent(
+                                    plugin_uuid,
+                                    DiscordEvents::InteractionCreate(
+                                        sonic_rs::to_vec(&interaction_create).unwrap(),
+                                    ),
                                 ),
-                            ))
+                            )))
                             .await;
                     }
                     Some(InteractionData::MessageComponent(message_component_interaction_data)) => {
-                        let initialized_plugins =
-                            discord_bot_client.plugin_registrations.read().await;
-
-                        let Some(plugin) = initialized_plugins
-                            .discord_events
-                            .interaction_create
-                            .message_components
-                            .get(&message_component_interaction_data.custom_id)
-                        else {
-                            return;
-                        };
-
                         let _ = discord_bot_client
                             .runtime_tx
-                            .send(RuntimeMessages::CallDiscordEvent(
-                                plugin.clone(),
-                                DiscordEvents::InteractionCreate(
-                                    sonic_rs::to_vec(&interaction_create).unwrap(),
+                            .send(RuntimeMessages::Discord(
+                                RuntimeMessagesDiscord::CallDiscordEvent(
+                                    plugin.clone(),
+                                    DiscordEvents::InteractionCreate(
+                                        sonic_rs::to_vec(&interaction_create).unwrap(),
+                                    ),
                                 ),
                             ))
                             .await;
@@ -80,10 +62,12 @@ impl DiscordBotClient {
 
                         let _ = discord_bot_client
                             .runtime_tx
-                            .send(RuntimeMessages::CallDiscordEvent(
-                                plugin.clone(),
-                                DiscordEvents::InteractionCreate(
-                                    sonic_rs::to_vec(&interaction_create).unwrap(),
+                            .send(RuntimeMessages::Discord(
+                                RuntimeMessagesDiscord::CallDiscordEvent(
+                                    plugin.clone(),
+                                    DiscordEvents::InteractionCreate(
+                                        sonic_rs::to_vec(&interaction_create).unwrap(),
+                                    ),
                                 ),
                             ))
                             .await;
@@ -105,10 +89,12 @@ impl DiscordBotClient {
                 {
                     let _ = discord_bot_client
                         .runtime_tx
-                        .send(RuntimeMessages::CallDiscordEvent(
-                            plugin.clone(),
-                            DiscordEvents::MessageCreate(
-                                sonic_rs::to_vec(&message_create).unwrap(),
+                        .send(RuntimeMessages::Discord(
+                            RuntimeMessagesDiscord::CallDiscordEvent(
+                                plugin.clone(),
+                                DiscordEvents::MessageCreate(
+                                    sonic_rs::to_vec(&message_create).unwrap(),
+                                ),
                             ),
                         ))
                         .await;
@@ -124,9 +110,13 @@ impl DiscordBotClient {
                 {
                     let _ = discord_bot_client
                         .runtime_tx
-                        .send(RuntimeMessages::CallDiscordEvent(
-                            plugin.clone(),
-                            DiscordEvents::ThreadCreate(sonic_rs::to_vec(&thread_create).unwrap()),
+                        .send(RuntimeMessages::Discord(
+                            RuntimeMessagesDiscord::CallDiscordEvent(
+                                plugin.clone(),
+                                DiscordEvents::ThreadCreate(
+                                    sonic_rs::to_vec(&thread_create).unwrap(),
+                                ),
+                            ),
                         ))
                         .await;
                 }
@@ -141,9 +131,13 @@ impl DiscordBotClient {
                 {
                     let _ = discord_bot_client
                         .runtime_tx
-                        .send(RuntimeMessages::CallDiscordEvent(
-                            plugin.clone(),
-                            DiscordEvents::ThreadDelete(sonic_rs::to_vec(&thread_delete).unwrap()),
+                        .send(RuntimeMessages::Discord(
+                            RuntimeMessagesDiscord::CallDiscordEvent(
+                                plugin.clone(),
+                                DiscordEvents::ThreadDelete(
+                                    sonic_rs::to_vec(&thread_delete).unwrap(),
+                                ),
+                            ),
                         ))
                         .await;
                 }
@@ -158,10 +152,12 @@ impl DiscordBotClient {
                 {
                     let _ = discord_bot_client
                         .runtime_tx
-                        .send(RuntimeMessages::CallDiscordEvent(
-                            plugin.clone(),
-                            DiscordEvents::ThreadListSync(
-                                sonic_rs::to_vec(&thread_list_sync).unwrap(),
+                        .send(RuntimeMessages::Discord(
+                            RuntimeMessagesDiscord::CallDiscordEvent(
+                                plugin.clone(),
+                                DiscordEvents::ThreadListSync(
+                                    sonic_rs::to_vec(&thread_list_sync).unwrap(),
+                                ),
                             ),
                         ))
                         .await;
@@ -177,10 +173,12 @@ impl DiscordBotClient {
                 {
                     let _ = discord_bot_client
                         .runtime_tx
-                        .send(RuntimeMessages::CallDiscordEvent(
-                            plugin.clone(),
-                            DiscordEvents::ThreadMemberUpdate(
-                                sonic_rs::to_vec(&thread_member_update).unwrap(),
+                        .send(RuntimeMessages::Discord(
+                            RuntimeMessagesDiscord::CallDiscordEvent(
+                                plugin.clone(),
+                                DiscordEvents::ThreadMemberUpdate(
+                                    sonic_rs::to_vec(&thread_member_update).unwrap(),
+                                ),
                             ),
                         ))
                         .await;
@@ -196,10 +194,12 @@ impl DiscordBotClient {
                 {
                     let _ = discord_bot_client
                         .runtime_tx
-                        .send(RuntimeMessages::CallDiscordEvent(
-                            plugin.clone(),
-                            DiscordEvents::ThreadMembersUpdate(
-                                sonic_rs::to_vec(&thread_members_update).unwrap(),
+                        .send(RuntimeMessages::Discord(
+                            RuntimeMessagesDiscord::CallDiscordEvent(
+                                plugin.clone(),
+                                DiscordEvents::ThreadMembersUpdate(
+                                    sonic_rs::to_vec(&thread_members_update).unwrap(),
+                                ),
                             ),
                         ))
                         .await;
@@ -215,9 +215,13 @@ impl DiscordBotClient {
                 {
                     let _ = discord_bot_client
                         .runtime_tx
-                        .send(RuntimeMessages::CallDiscordEvent(
-                            plugin.clone(),
-                            DiscordEvents::ThreadUpdate(sonic_rs::to_vec(&thread_update).unwrap()),
+                        .send(RuntimeMessages::Discord(
+                            RuntimeMessagesDiscord::CallDiscordEvent(
+                                plugin.clone(),
+                                DiscordEvents::ThreadUpdate(
+                                    sonic_rs::to_vec(&thread_update).unwrap(),
+                                ),
+                            ),
                         ))
                         .await;
                 }

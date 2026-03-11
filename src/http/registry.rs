@@ -3,7 +3,7 @@
 
 use std::str::FromStr;
 
-use anyhow::{Context, Error, Result};
+use anyhow::{Context, Result, bail};
 use reqwest::StatusCode;
 use tracing::debug;
 use url::{ParseError, Url};
@@ -19,10 +19,10 @@ impl HttpClient {
         let response = self.client.get(url).send().await?;
 
         if response.status() != StatusCode::OK {
-            return Err(Error::msg(format!(
+            bail!(
                 "The response was undesired, status code: {}",
                 response.status()
-            )));
+            );
         }
 
         Ok(response

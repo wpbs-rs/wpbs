@@ -1,27 +1,22 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 /* Copyright © 2026 Eduard Smet */
 
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 
 use tokio::{
-    sync::{
-        Mutex, RwLock,
-        mpsc::{Receiver, Sender},
-    },
+    sync::mpsc::{UnboundedReceiver, UnboundedSender},
     task::JoinHandle,
 };
 use tracing::{error, info};
-use twilight_cache_inmemory::{DefaultInMemoryCache, InMemoryCache, ResourceType};
+use twilight_cache_inmemory::{DefaultInMemoryCache, InMemoryCache};
 use twilight_gateway::{
-    CloseFrame, Config, Event, EventType, EventTypeFlags, Intents, MessageSender, Shard, StreamExt,
+    CloseFrame, Config, EventType, EventTypeFlags, Intents, MessageSender, Shard, StreamExt,
 };
 use twilight_http::Client;
-use twilight_model::id::{Id, marker::GuildMarker};
 
 use crate::{
     SHUTDOWN,
-    plugins::PluginRegistrations,
-    utils::channels::{DiscordBotClientMessages, RuntimeMessages},
+    utils::channels::{CoreMessages, DiscordBotClientMessages},
 };
 
 mod events;
@@ -30,23 +25,22 @@ mod requests;
 
 pub struct DiscordBotClient {
     http_client: Arc<Client>,
-    shard_message_senders: Arc<RwLock<HashMap<Id<GuildMarker>, Arc<MessageSender>>>>,
+    shards: Vec<Shard>,
+    shard_message_senders: Arc<Vec<MessageSender>>,
     cache: Arc<InMemoryCache>,
-    plugin_registrations: Arc<RwLock<PluginRegistrations>>,
-    runtime_tx: Arc<Sender<RuntimeMessages>>,
-    runtime_rx: Arc<Mutex<Receiver<DiscordBotClientMessages>>>,
+    core_tx: Arc<UnboundedSender<CoreMessages>>,
+    rx: UnboundedReceiver<DiscordBotClientMessages>,
 }
 
 impl DiscordBotClient {
     pub async fn new(
         token: String,
-        plugin_registrations: Arc<RwLock<PluginRegistrations>>,
-        runtime_tx: Sender<RuntimeMessages>,
-        runtime_rx: Receiver<DiscordBotClientMessages>,
-    ) -> Result<(Self, Box<dyn ExactSizeIterator<Item = Shard> + Send>), ()> {
+        core_tx: UnboundedSender<CoreMessages>,
+        rx: UnboundedReceiver<DiscordBotClientMessages>,
+    ) -> Result<Self, ()> {
         info!("Creating the Discord bot client");
 
-        let intents = Intents::all();
+        let intents = Intents::all(); // TODO: Make this configurable
 
         rustls::crypto::aws_lc_rs::default_provider()
             .install_default()
@@ -56,14 +50,14 @@ impl DiscordBotClient {
 
         let config = Config::new(token, intents);
 
-        let shards = match twilight_gateway::create_recommended(
+        let (shards, shard_message_senders) = match twilight_gateway::create_recommended(
             &http_client,
             config,
             |_, builder| builder.build(),
         )
         .await
         {
-            Ok(shards) => Box::new(shards),
+            Ok(shard_iterator) => Self::shard_message_senders(Box::new(shard_iterator)),
             Err(err) => {
                 error!(
                     "Something went wrong while getting the recommended amount of shards from Discord, error: {}",
@@ -73,74 +67,66 @@ impl DiscordBotClient {
             }
         };
 
-        let shard_message_senders = Arc::new(RwLock::new(HashMap::new()));
+        let cache = Arc::new(DefaultInMemoryCache::default()); // TODO: Make this configurable
 
-        let cache = Arc::new(
-            DefaultInMemoryCache::builder()
-                .resource_types(ResourceType::all())
-                .build(),
-        );
-
-        Ok((
-            DiscordBotClient {
-                http_client: Arc::new(http_client),
-                shard_message_senders,
-                cache,
-                plugin_registrations,
-                runtime_tx: Arc::new(runtime_tx),
-                runtime_rx: Arc::new(Mutex::new(runtime_rx)),
-            },
+        Ok(DiscordBotClient {
+            http_client: Arc::new(http_client),
             shards,
-        ))
+            shard_message_senders: Arc::new(shard_message_senders),
+            cache,
+            core_tx: Arc::new(core_tx),
+            rx,
+        })
     }
 
-    pub fn start(self, shards: Box<dyn ExactSizeIterator<Item = Shard> + Send>) -> JoinHandle<()> {
-        let mut tasks = Vec::with_capacity(shards.len());
+    pub fn start(mut self) -> JoinHandle<()> {
+        let mut tasks = Vec::with_capacity(self.shards.len());
 
-        let discord_bot_client = Arc::new(self);
-
-        for shard in shards {
+        for shard in self.shards.drain(..) {
             tasks.push(tokio::spawn(Self::shard_runner(
-                discord_bot_client.clone(),
+                self.cache.clone(),
+                self.core_tx.clone(),
                 shard,
             )));
         }
 
         tokio::spawn(async move {
-            while let Some(message) = discord_bot_client.runtime_rx.lock().await.recv().await {
+            while let Some(message) = self.rx.recv().await {
                 match message {
-                    DiscordBotClientMessages::RegisterApplicationCommands(commands) => {
-                        let _ = discord_bot_client
-                            .application_command_registrations(commands)
-                            .await;
+                    DiscordBotClientMessages::RegisterApplicationCommands(
+                        commands,
+                        response_sender,
+                    ) => {
+                        let http_client = self.http_client.clone();
+                        tokio::spawn(async {
+                            response_sender.send(
+                                Self::application_command_registrations(http_client, commands)
+                                    .await,
+                            );
+                        });
                     }
                     DiscordBotClientMessages::Request(request, response_sender) => {
-                        let _ = response_sender.send(discord_bot_client.request(request).await);
-                    }
-                    DiscordBotClientMessages::Shutdown(is_done) => {
-                        for sender in discord_bot_client
-                            .shard_message_senders
-                            .read()
-                            .await
-                            .values()
-                        {
-                            _ = sender.close(CloseFrame::NORMAL);
-                        }
+                        let http_client = self.http_client.clone();
+                        let shard_message_senders = self.shard_message_senders.clone();
 
-                        for task in tasks.drain(..) {
-                            let _ = task.await;
-                        }
-
-                        let _ = is_done.send(());
+                        tokio::spawn(async {
+                            response_sender.send(
+                                Self::request(http_client, shard_message_senders, request).await,
+                            );
+                        });
                     }
                 }
             }
+
+            self.shutdown(tasks);
         })
     }
 
-    pub async fn shard_runner(discord_bot_client: Arc<DiscordBotClient>, mut shard: Shard) {
-        let shard_message_sender = Arc::new(shard.sender());
-
+    async fn shard_runner(
+        cache: Arc<InMemoryCache>,
+        core_tx: Arc<UnboundedSender<CoreMessages>>,
+        mut shard: Shard,
+    ) {
         while let Some(item) = shard.next_event(EventTypeFlags::all()).await {
             let Ok(event) = item else {
                 error!(
@@ -155,24 +141,33 @@ impl DiscordBotClient {
                 break;
             }
 
-            discord_bot_client.cache.update(&event);
+            cache.update(&event);
 
-            match event {
-                Event::Ready(ready) => {
-                    info!("Shard is ready, logged in as {}", &ready.user.name);
+            tokio::spawn(Self::handle_event(core_tx.clone(), event));
+        }
+    }
 
-                    for guild in ready.guilds {
-                        discord_bot_client
-                            .shard_message_senders
-                            .write()
-                            .await
-                            .insert(guild.id, shard_message_sender.clone());
-                    }
-                }
-                _ => {
-                    tokio::spawn(Self::handle_event(discord_bot_client.clone(), event));
-                }
-            }
+    fn shard_message_senders(
+        shard_iterator: Box<dyn ExactSizeIterator<Item = Shard>>,
+    ) -> (Vec<Shard>, Vec<MessageSender>) {
+        let mut shards = vec![];
+        let mut shard_message_senders = vec![];
+
+        for shard in shard_iterator {
+            shard_message_senders.push(shard.sender());
+            shards.push(shard);
+        }
+
+        (shards, shard_message_senders)
+    }
+
+    async fn shutdown(&self, mut tasks: Vec<JoinHandle<()>>) {
+        for shard_message_sender in self.shard_message_senders.iter() {
+            _ = shard_message_sender.close(CloseFrame::NORMAL);
+        }
+
+        for task in tasks.drain(..) {
+            let _ = task.await;
         }
     }
 }
