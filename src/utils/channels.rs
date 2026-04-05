@@ -12,12 +12,9 @@ use uuid::Uuid;
 use crate::{
     Shutdown,
     database::Keyspaces,
-    plugins::{
-        PluginRegistrationRequestsApplicationCommand,
-        discord_bot::plugin::{
-            discord_export_types::DiscordEvents,
-            discord_import_types::{DiscordRequests, DiscordResponses},
-        },
+    runtime::plugins::wbps::plugin::{
+        discord_export_types::DiscordEvents, discord_import_functions::DiscordRequests,
+        discord_import_types::DiscordResponses,
     },
 };
 
@@ -27,7 +24,7 @@ pub enum CoreMessages {
     JobSchedulerModule(JobSchedulerMessages),
     DiscordBotClientModule(DiscordBotClientMessages),
 
-    RuntimeModule(RuntimeMessages),
+    Runtime(RuntimeMessages),
 
     Shutdown(Shutdown),
 }
@@ -45,10 +42,7 @@ pub enum JobSchedulerMessages {
 }
 
 pub enum DiscordBotClientMessages {
-    RegisterApplicationCommands(
-        Vec<PluginRegistrationRequestsApplicationCommand>,
-        OSSender<Result<(Vec<String>, Vec<String>)>>,
-    ),
+    RegisterApplicationCommands(Vec<Vec<u8>>, OSSender<Result<(Vec<String>, Vec<String>)>>),
     Request(DiscordRequests, OSSender<Result<Option<DiscordResponses>>>),
 }
 

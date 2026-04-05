@@ -1,8 +1,9 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 /* Copyright © 2026 Eduard Smet */
 
-use crate::plugins::{
-    discord_bot::plugin::{
+use crate::runtime::{
+    internal::InternalRuntime,
+    plugins::wbps::plugin::{
         core_import_types::Error,
         discord_export_types::Host as DiscordExportTypesHost,
         discord_import_functions::Host as DiscordImportFunctionsHost,
@@ -11,7 +12,6 @@ use crate::plugins::{
             Host as DiscordImportTypesHost, SupportedDiscordRegistrations,
         },
     },
-    runtime::internal::InternalRuntime,
 };
 
 impl DiscordImportTypesHost for InternalRuntime {}

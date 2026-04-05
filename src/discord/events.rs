@@ -10,7 +10,7 @@ use twilight_model::application::interaction::InteractionData;
 
 use crate::{
     discord::DiscordBotClient,
-    plugins::discord_bot::plugin::discord_export_types::DiscordEvents,
+    runtime::plugins::exports::wbps::plugin::discord_export_functions::DiscordEvents,
     utils::channels::{CoreMessages, RuntimeMessages, RuntimeMessagesDiscord},
 };
 

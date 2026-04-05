@@ -25,17 +25,20 @@ mod database;
 mod discord;
 mod http;
 mod job_scheduler;
-mod plugins;
+mod registry;
+mod runtime;
 mod utils;
 
 use cli::{Cli, CliLogParameters};
 use config::Config;
 use discord::DiscordBotClient;
 use job_scheduler::JobScheduler;
-use plugins::{registry, runtime::Runtime};
 use utils::{channels::Channels, env::Secrets};
 
-use crate::utils::channels::{ChannelsCore, CoreMessages};
+use crate::{
+    runtime::Runtime,
+    utils::channels::{ChannelsCore, CoreMessages},
+};
 
 #[derive(PartialEq)]
 enum Shutdown {
@@ -149,7 +152,7 @@ fn start(database: Database, mut channels_core: ChannelsCore) -> JoinHandle<()> 
                         .discord_bot_client_tx
                         .send(discord_bot_client_message);
                 }
-                CoreMessages::RuntimeModule(runtime_message) => {
+                CoreMessages::Runtime(runtime_message) => {
                     channels_core.runtime_tx.send(runtime_message);
                 }
                 CoreMessages::Shutdown(shutdown) => todo!(), // TODO: Figure shutdown out

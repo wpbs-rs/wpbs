@@ -7,7 +7,9 @@ use indexmap::IndexMap;
 use serde::Deserialize;
 use tracing::{error, info};
 
-use crate::plugins::ConfigPlugin;
+use crate::config::plugins::ConfigPlugin;
+
+pub mod plugins;
 
 #[derive(Deserialize)]
 pub struct Config {

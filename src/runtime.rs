@@ -1,12 +1,14 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 /* Copyright © 2026 Eduard Smet */
 
-pub mod internal;
+mod builder;
+mod internal;
+pub mod plugins;
 
 use std::{collections::HashMap, fs, path::Path};
 
 use anyhow::Result;
-use serde_yaml_ng::Value;
+use sonic_rs::Value;
 use tokio::{
     sync::{
         Mutex, RwLock,
@@ -21,10 +23,11 @@ use wasmtime_wasi::{DirPerms, FilePerms, ResourceTable, WasiCtxBuilder};
 use wasmtime_wasi_http::WasiHttpCtx;
 
 use crate::{
-    plugins::{
-        AvailablePlugin, Plugin, builder::PluginBuilder,
-        discord_bot::plugin::discord_export_types::DiscordEvents,
-        runtime::internal::InternalRuntime,
+    registry::plugins::AvailablePlugin,
+    runtime::{
+        builder::PluginBuilder,
+        internal::InternalRuntime,
+        plugins::{Plugin, wbps::plugin::discord_export_types::DiscordEvents},
     },
     utils::channels::{
         CoreMessages, RuntimeMessages, RuntimeMessagesDiscord, RuntimeMessagesJobScheduler,
@@ -172,7 +175,7 @@ impl Runtime {
                 };
 
             match instance
-                .discord_bot_plugin_core_export_functions()
+                .wbps_plugin_core_export_functions()
                 .call_initialization(
                     &mut store,
                     &sonic_rs::to_vec(&plugin.settings.unwrap_or(Value::default())).unwrap(),
@@ -216,7 +219,7 @@ impl Runtime {
 
         match plugin
             .instance
-            .discord_bot_plugin_discord_export_functions()
+            .wbps_plugin_discord_export_functions()
             .call_discord_event(&mut *plugin.store.lock().await, event)
             .await
         {
@@ -237,7 +240,7 @@ impl Runtime {
 
         match plugin
             .instance
-            .discord_bot_plugin_job_scheduler_export_functions()
+            .wbps_plugin_job_scheduler_export_functions()
             .call_scheduled_job(&mut *plugin.store.lock().await, &uuid.to_string())
             .await
         {
@@ -258,7 +261,7 @@ impl Runtime {
 
         match plugin
             .instance
-            .discord_bot_plugin_core_export_functions()
+            .wbps_plugin_core_export_functions()
             .call_shutdown(&mut *plugin.store.lock().await)
             .await
         {

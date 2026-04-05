@@ -843,40 +843,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "discord-bot"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "bytes",
- "chrono",
- "clap",
- "dotenvy",
- "fjall",
- "indexmap",
- "reqwest",
- "rustls 0.23.37",
- "semver",
- "serde",
- "serde_yaml_ng",
- "sonic-rs",
- "tokio",
- "tokio-cron-scheduler",
- "tokio-util",
- "tracing",
- "tracing-appender",
- "tracing-subscriber",
- "twilight-cache-inmemory",
- "twilight-gateway",
- "twilight-http",
- "twilight-model",
- "url",
- "uuid",
- "wasmtime",
- "wasmtime-wasi",
- "wasmtime-wasi-http",
-]
-
-[[package]]
 name = "displaydoc"
 version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4334,6 +4300,40 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bbf35b87ed352f9ab6cd0732abde5a67dd6153dfd02c493e61459218b19456fa"
 dependencies = [
  "wast 244.0.0",
+]
+
+[[package]]
+name = "wbps"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bytes",
+ "chrono",
+ "clap",
+ "dotenvy",
+ "fjall",
+ "indexmap",
+ "reqwest",
+ "rustls 0.23.37",
+ "semver",
+ "serde",
+ "serde_yaml_ng",
+ "sonic-rs",
+ "tokio",
+ "tokio-cron-scheduler",
+ "tokio-util",
+ "tracing",
+ "tracing-appender",
+ "tracing-subscriber",
+ "twilight-cache-inmemory",
+ "twilight-gateway",
+ "twilight-http",
+ "twilight-model",
+ "url",
+ "uuid",
+ "wasmtime",
+ "wasmtime-wasi",
+ "wasmtime-wasi-http",
 ]
 
 [[package]]

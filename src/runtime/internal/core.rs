@@ -6,9 +6,11 @@ use tracing::{debug, error, info, trace, warn};
 
 use crate::{
     Shutdown,
+    config::plugins::permissions::{ConfigPluginPermissions, ConfigSupportedCoreRegistrations},
     database::Keyspaces,
-    plugins::{
-        discord_bot::plugin::{
+    runtime::{
+        internal::InternalRuntime,
+        plugins::wbps::plugin::{
             core_export_types::Host as CoreExportTypesHost,
             core_import_functions::Host as CoreImportFunctionsHost,
             core_import_types::{
@@ -17,8 +19,6 @@ use crate::{
             },
             core_types::Host as CoreTypesHost,
         },
-        permissions::{ConfigPluginPermissions, ConfigSupportedCoreRegistrations},
-        runtime::internal::InternalRuntime,
     },
     utils::channels::{CoreMessages, DatabaseMessages},
 };

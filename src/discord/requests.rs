@@ -17,9 +17,8 @@ use twilight_model::gateway::{
 
 use crate::{
     discord::DiscordBotClient,
-    plugins::discord_bot::plugin::{
-        discord_import_functions::{DiscordRequests, DiscordResponses},
-        discord_import_types::Body,
+    runtime::plugins::wbps::plugin::discord_import_types::{
+        Body, DiscordRequests, DiscordResponses,
     },
 };
 

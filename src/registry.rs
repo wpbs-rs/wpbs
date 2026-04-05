@@ -1,6 +1,8 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 /* Copyright © 2026 Eduard Smet */
 
+pub mod plugins;
+
 use std::{
     collections::{BTreeMap, HashMap},
     io::ErrorKind,
@@ -16,9 +18,9 @@ use tracing::{error, info, warn};
 use uuid::Uuid;
 
 use crate::{
-    config::Config,
+    config::{Config, plugins::ConfigPlugin},
     http::HttpClient,
-    plugins::{AvailablePlugin, ConfigPlugin},
+    registry::plugins::{AvailablePlugin, RegistryPlugin, RegistryPluginVersion},
 };
 
 #[derive(Deserialize)]
@@ -28,23 +30,6 @@ pub struct Registry {
     pub description: String,
     pub maintainers: Vec<String>,
     pub plugins: BTreeMap<String, RegistryPlugin>,
-}
-
-#[derive(Deserialize)]
-#[allow(unused)]
-pub struct RegistryPlugin {
-    pub versions: Vec<RegistryPluginVersion>,
-    pub description: String,
-}
-
-#[derive(Deserialize)]
-#[allow(unused)]
-pub struct RegistryPluginVersion {
-    pub version: String,
-    pub release_time: String,
-    pub compatible_program_version: String,
-    pub deprecated: Option<bool>,
-    pub deprecation_reason: Option<String>,
 }
 
 type RegistryTask = Vec<tokio::task::JoinHandle<Result<Vec<(Uuid, AvailablePlugin)>>>>;

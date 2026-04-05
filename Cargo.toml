@@ -1,6 +1,6 @@
 [package]
-name = "discord-bot"
-description = "A WASI plugin based Discord bot, configurable through YAML."
+name = "wbps"
+description = "WASM based plugin services."
 version = "0.1.0"
 authors = ["Eduard Smet <contact@celarye.dev>"]
 license = "GPL-3.0-or-later"

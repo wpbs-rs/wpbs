@@ -78,7 +78,7 @@ impl JobScheduler {
             let core_tx = core_tx.clone();
 
             Box::pin(async move {
-                let _ = core_tx.send(CoreMessages::RuntimeModule(RuntimeMessages::JobScheduler(
+                let _ = core_tx.send(CoreMessages::Runtime(RuntimeMessages::JobScheduler(
                     RuntimeMessagesJobScheduler::CallScheduledJob(plugin_id, job_id),
                 )));
             })

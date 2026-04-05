@@ -14,21 +14,19 @@ use twilight_model::{
     },
 };
 
-use crate::{discord::DiscordBotClient, plugins::PluginRegistrationRequestsApplicationCommand};
+use crate::discord::DiscordBotClient;
 
 impl DiscordBotClient {
     pub async fn application_command_registrations(
         http_client: Arc<Client>,
-        discord_application_command_registration_request: Vec<
-            PluginRegistrationRequestsApplicationCommand,
-        >,
+        discord_application_command_registration_request: Vec<Vec<u8>>,
     ) -> Result<(Vec<String>, Vec<String>)> {
         let mut discord_commands = HashMap::new();
 
         let mut commands = HashMap::new();
 
         for command in discord_application_command_registration_request {
-            let command_data = match sonic_rs::from_slice::<Command>(&command.data) {
+            let command_data = match sonic_rs::from_slice::<Command>(&command) {
                 Ok(command) => command,
                 Err(err) => {
                     error!(

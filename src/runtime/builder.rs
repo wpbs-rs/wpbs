@@ -6,7 +6,7 @@ use wasmtime::{
     component::{HasSelf, Linker},
 };
 
-use crate::plugins::{Plugin, runtime::internal::InternalRuntime};
+use crate::runtime::{internal::InternalRuntime, plugins::Plugin};
 
 pub struct PluginBuilder {
     pub engine: Engine,
