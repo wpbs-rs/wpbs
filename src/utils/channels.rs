@@ -30,10 +30,12 @@ pub enum CoreMessages {
 }
 
 pub enum DatabaseMessages {
-    GetState(Keyspaces, Vec<u8>, OSSender<Result<Option<Slice>>>),
-    InsertState(Keyspaces, Vec<u8>, Vec<u8>, OSSender<Result<()>>),
-    DeleteState(Keyspaces, Vec<u8>, OSSender<Result<()>>),
+    Get(Keyspaces, Vec<u8>, OSSender<Result<Option<Slice>>>),
+    GetAll(Keyspaces, OSSender<Result<Vec<Slice>>>),
+    Insert(Keyspaces, Vec<u8>, Vec<u8>, OSSender<Result<()>>),
+    Remove(Keyspaces, Vec<u8>, OSSender<Result<()>>),
     ContainsKey(Keyspaces, Vec<u8>, OSSender<Result<bool>>),
+    Clear(Keyspaces, OSSender<Result<()>>),
 }
 
 pub enum JobSchedulerMessages {
@@ -42,7 +44,7 @@ pub enum JobSchedulerMessages {
 }
 
 pub enum DiscordBotClientMessages {
-    RegisterApplicationCommands(Vec<Vec<u8>>, OSSender<Result<(Vec<String>, Vec<String>)>>),
+    RegisterApplicationCommands,
     Request(DiscordRequests, OSSender<Result<Option<DiscordResponses>>>),
 }
 

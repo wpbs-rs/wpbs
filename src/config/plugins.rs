@@ -12,6 +12,8 @@ pub struct ConfigPlugin {
     pub plugin: String,
     pub cache: Option<bool>,
     pub permissions: ConfigPluginPermissions,
-    pub environment: Option<HashMap<String, String>>,
-    pub settings: Option<Value>,
+    #[serde(default)]
+    pub environment: HashMap<String, String>,
+    #[serde(default)]
+    pub settings: Value,
 }

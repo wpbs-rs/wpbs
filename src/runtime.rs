@@ -8,7 +8,6 @@ pub mod plugins;
 use std::{collections::HashMap, fs, path::Path};
 
 use anyhow::Result;
-use sonic_rs::Value;
 use tokio::{
     sync::{
         Mutex, RwLock,
@@ -89,6 +88,9 @@ impl Runtime {
         info!("Initializing the plugins");
 
         for (plugin_id, plugin) in available_plugins {
+            let plugin_user_id = plugin.user_id.clone();
+            let plugin_settings = plugin.settings.clone();
+
             let plugin_directory = plugin_directory
                 .join(&plugin.registry_id)
                 .join(&plugin.id)
@@ -99,7 +101,7 @@ impl Runtime {
                 Err(err) => {
                     error!(
                         "An error occured while reading the {} plugin file: {err}",
-                        plugin.user_id
+                        plugin_user_id
                     );
                     continue;
                 }
@@ -110,15 +112,14 @@ impl Runtime {
                 Err(err) => {
                     error!(
                         "An error occured while creating a WASI component from the {} plugin: {err}",
-                        plugin.user_id
+                        plugin_user_id
                     );
                     continue;
                 }
             };
 
-            let env_hm = plugin.environment.unwrap_or(HashMap::new());
-
-            let env: Box<[(&str, &str)]> = env_hm
+            let env: Box<[(&str, &str)]> = plugin
+                .environment
                 .iter()
                 .map(|(k, v)| (k.as_str(), v.as_str()))
                 .collect();
@@ -130,14 +131,14 @@ impl Runtime {
                     if !exists && let Err(err) = fs::create_dir(&workspace_plugin_dir) {
                         error!(
                             "Something went wrong while creating the workspace directory for the {} plugin, error: {err}",
-                            plugin.user_id
+                            plugin_user_id
                         );
                     }
                 }
                 Err(err) => {
                     error!(
                         "Something went wrong while checking if the workspace directory of the {} plugin exists, error: {err}",
-                        plugin.user_id
+                        plugin_user_id
                     );
                     return Err(());
                 }
@@ -153,6 +154,7 @@ impl Runtime {
                 &plugin_builder.engine,
                 InternalRuntime::new(
                     plugin_id,
+                    plugin,
                     wasi,
                     WasiHttpCtx::new(),
                     ResourceTable::new(),
@@ -168,7 +170,7 @@ impl Runtime {
                     Err(err) => {
                         error!(
                             "Failed to instantiate the {} plugin, error: {err}",
-                            plugin.user_id
+                            plugin_user_id
                         );
                         continue;
                     }
@@ -176,17 +178,14 @@ impl Runtime {
 
             match instance
                 .wbps_plugin_core_export_functions()
-                .call_initialization(
-                    &mut store,
-                    &sonic_rs::to_vec(&plugin.settings.unwrap_or(Value::default())).unwrap(),
-                )
+                .call_initialization(&mut store, &sonic_rs::to_vec(&plugin_settings).unwrap())
                 .await
             {
                 Ok(init_result) => {
                     if let Err(err) = init_result {
                         error!(
                             "the {} plugin returned an error while intiializing: {err}",
-                            plugin.user_id
+                            plugin_user_id
                         );
                         continue;
                     }
@@ -194,7 +193,7 @@ impl Runtime {
                 Err(err) => {
                     error!(
                         "The {} plugin exprienced a critical error: {err}",
-                        plugin.user_id
+                        plugin_user_id
                     );
                     continue;
                 }

@@ -10,10 +10,11 @@ mod core;
 mod discord;
 mod job_scheduler;
 
-use crate::utils::channels::CoreMessages;
+use crate::{registry::plugins::AvailablePlugin, utils::channels::CoreMessages};
 
 pub struct InternalRuntime {
     plugin_id: Uuid,
+    plugin_metadata: AvailablePlugin,
     wasi: WasiCtx,
     wasi_http: WasiHttpCtx,
     table: ResourceTable,
@@ -42,6 +43,7 @@ impl WasiHttpView for InternalRuntime {
 impl InternalRuntime {
     pub fn new(
         plugin_id: Uuid,
+        plugin_metadata: AvailablePlugin,
         wasi: WasiCtx,
         wasi_http: WasiHttpCtx,
         table: ResourceTable,
@@ -49,6 +51,7 @@ impl InternalRuntime {
     ) -> Self {
         InternalRuntime {
             plugin_id,
+            plugin_metadata,
             wasi,
             wasi_http,
             table,

@@ -1,235 +1,164 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 /* Copyright © 2026 Eduard Smet */
 
-use std::sync::Arc;
+use std::{str::FromStr, sync::Arc};
 
-use tokio::sync::mpsc::UnboundedSender;
+use serde::Serialize;
+use tokio::sync::{mpsc::UnboundedSender, oneshot::channel};
 use tracing::{debug, error};
 use twilight_gateway::Event;
 use twilight_model::application::interaction::InteractionData;
+use uuid::Uuid;
 
 use crate::{
+    database::Keyspaces,
     discord::DiscordBotClient,
     runtime::plugins::exports::wbps::plugin::discord_export_functions::DiscordEvents,
-    utils::channels::{CoreMessages, RuntimeMessages, RuntimeMessagesDiscord},
+    utils::channels::{CoreMessages, DatabaseMessages, RuntimeMessages, RuntimeMessagesDiscord},
 };
 
 impl DiscordBotClient {
-    #[allow(clippy::too_many_lines)]
     pub async fn handle_event(core_tx: Arc<UnboundedSender<CoreMessages>>, event: Event) {
         match event {
             Event::InteractionCreate(interaction_create) => {
                 match interaction_create.data.as_ref() {
                     Some(InteractionData::ApplicationCommand(command_data)) => {
-                        // TODO: get value
+                        let (sender, receiver) = channel();
 
-                        let _ = core_tx
-                            .send(CoreMessages::Runtime(RuntimeMessages::Discord(
-                                RuntimeMessagesDiscord::CallDiscordEvent(
-                                    plugin_uuid,
-                                    DiscordEvents::InteractionCreate(
-                                        sonic_rs::to_vec(&interaction_create).unwrap(),
-                                    ),
+                        core_tx.send(CoreMessages::DatabaseModule(DatabaseMessages::Get(
+                            Keyspaces::DiscordApplicationCommands,
+                            sonic_rs::to_vec(&command_data.id.get()).unwrap(),
+                            sender,
+                        )));
+
+                        let Some(response_bytes) = receiver.await.unwrap().unwrap() else {
+                            return;
+                        };
+
+                        core_tx.send(CoreMessages::Runtime(RuntimeMessages::Discord(
+                            RuntimeMessagesDiscord::CallDiscordEvent(
+                                Uuid::from_slice(&response_bytes).unwrap(),
+                                DiscordEvents::InteractionCreate(
+                                    sonic_rs::to_vec(&interaction_create).unwrap(),
                                 ),
-                            )))
-                            .await;
+                            ),
+                        )));
                     }
                     Some(InteractionData::MessageComponent(message_component_interaction_data)) => {
-                        let _ = discord_bot_client
-                            .runtime_tx
-                            .send(RuntimeMessages::Discord(
-                                RuntimeMessagesDiscord::CallDiscordEvent(
-                                    plugin.clone(),
-                                    DiscordEvents::InteractionCreate(
-                                        sonic_rs::to_vec(&interaction_create).unwrap(),
-                                    ),
-                                ),
-                            ))
-                            .await;
-                    }
-                    Some(InteractionData::ModalSubmit(modal_interaction_data)) => {
-                        let initialized_plugins =
-                            discord_bot_client.plugin_registrations.read().await;
+                        let (sender, receiver) = channel();
 
-                        let Some(plugin) = initialized_plugins
-                            .discord_events
-                            .interaction_create
-                            .modals
-                            .get(&modal_interaction_data.custom_id)
+                        let Ok(message_component_id) =
+                            Uuid::from_str(&message_component_interaction_data.custom_id)
                         else {
                             return;
                         };
 
-                        let _ = discord_bot_client
-                            .runtime_tx
-                            .send(RuntimeMessages::Discord(
-                                RuntimeMessagesDiscord::CallDiscordEvent(
-                                    plugin.clone(),
-                                    DiscordEvents::InteractionCreate(
-                                        sonic_rs::to_vec(&interaction_create).unwrap(),
-                                    ),
+                        core_tx.send(CoreMessages::DatabaseModule(DatabaseMessages::Get(
+                            Keyspaces::DiscordMessageComponents,
+                            message_component_id.as_bytes().to_vec(),
+                            sender,
+                        )));
+
+                        let Some(response_bytes) = receiver.await.unwrap().unwrap() else {
+                            return;
+                        };
+
+                        core_tx.send(CoreMessages::Runtime(RuntimeMessages::Discord(
+                            RuntimeMessagesDiscord::CallDiscordEvent(
+                                Uuid::from_slice(&response_bytes).unwrap(),
+                                DiscordEvents::InteractionCreate(
+                                    sonic_rs::to_vec(&interaction_create).unwrap(),
                                 ),
-                            ))
-                            .await;
+                            ),
+                        )));
                     }
-                    None => error!("Interaction data is required."),
+                    Some(InteractionData::ModalSubmit(modal_interaction_data)) => {
+                        let (sender, receiver) = channel();
+
+                        let Ok(modal_id) = Uuid::from_str(&modal_interaction_data.custom_id) else {
+                            return;
+                        };
+
+                        core_tx.send(CoreMessages::DatabaseModule(DatabaseMessages::Get(
+                            Keyspaces::DiscordMessageComponents,
+                            modal_id.as_bytes().to_vec(),
+                            sender,
+                        )));
+
+                        let Some(response_bytes) = receiver.await.unwrap().unwrap() else {
+                            return;
+                        };
+
+                        core_tx.send(CoreMessages::Runtime(RuntimeMessages::Discord(
+                            RuntimeMessagesDiscord::CallDiscordEvent(
+                                Uuid::from_slice(&response_bytes).unwrap(),
+                                DiscordEvents::InteractionCreate(
+                                    sonic_rs::to_vec(&interaction_create).unwrap(),
+                                ),
+                            ),
+                        )));
+                    }
                     _ => error!(
-                        "This interaction create data type does not have support yet, interaction data type: {:#?}",
-                        &interaction_create.data.as_ref().unwrap().type_id()
+                        "Received unsupported interaction event: {}",
+                        interaction_create.kind.kind()
                     ),
                 }
             }
             Event::MessageCreate(message_create) => {
-                for plugin in &discord_bot_client
-                    .plugin_registrations
-                    .read()
-                    .await
-                    .discord_events
-                    .message_create
-                {
-                    let _ = discord_bot_client
-                        .runtime_tx
-                        .send(RuntimeMessages::Discord(
-                            RuntimeMessagesDiscord::CallDiscordEvent(
-                                plugin.clone(),
-                                DiscordEvents::MessageCreate(
-                                    sonic_rs::to_vec(&message_create).unwrap(),
-                                ),
-                            ),
-                        ))
-                        .await;
-                }
+                Self::handle_basic_event(core_tx, "MESSAGE_CREATE", message_create);
             }
             Event::ThreadCreate(thread_create) => {
-                for plugin in &discord_bot_client
-                    .plugin_registrations
-                    .read()
-                    .await
-                    .discord_events
-                    .thread_create
-                {
-                    let _ = discord_bot_client
-                        .runtime_tx
-                        .send(RuntimeMessages::Discord(
-                            RuntimeMessagesDiscord::CallDiscordEvent(
-                                plugin.clone(),
-                                DiscordEvents::ThreadCreate(
-                                    sonic_rs::to_vec(&thread_create).unwrap(),
-                                ),
-                            ),
-                        ))
-                        .await;
-                }
+                Self::handle_basic_event(core_tx, "THREAD_CREATE", thread_create);
             }
             Event::ThreadDelete(thread_delete) => {
-                for plugin in &discord_bot_client
-                    .plugin_registrations
-                    .read()
-                    .await
-                    .discord_events
-                    .thread_delete
-                {
-                    let _ = discord_bot_client
-                        .runtime_tx
-                        .send(RuntimeMessages::Discord(
-                            RuntimeMessagesDiscord::CallDiscordEvent(
-                                plugin.clone(),
-                                DiscordEvents::ThreadDelete(
-                                    sonic_rs::to_vec(&thread_delete).unwrap(),
-                                ),
-                            ),
-                        ))
-                        .await;
-                }
-            }
-            Event::ThreadListSync(thread_list_sync) => {
-                for plugin in &discord_bot_client
-                    .plugin_registrations
-                    .read()
-                    .await
-                    .discord_events
-                    .thread_list_sync
-                {
-                    let _ = discord_bot_client
-                        .runtime_tx
-                        .send(RuntimeMessages::Discord(
-                            RuntimeMessagesDiscord::CallDiscordEvent(
-                                plugin.clone(),
-                                DiscordEvents::ThreadListSync(
-                                    sonic_rs::to_vec(&thread_list_sync).unwrap(),
-                                ),
-                            ),
-                        ))
-                        .await;
-                }
+                Self::handle_basic_event(core_tx, "THREAD_DELETE", thread_delete);
             }
             Event::ThreadMemberUpdate(thread_member_update) => {
-                for plugin in &discord_bot_client
-                    .plugin_registrations
-                    .read()
-                    .await
-                    .discord_events
-                    .thread_member_update
-                {
-                    let _ = discord_bot_client
-                        .runtime_tx
-                        .send(RuntimeMessages::Discord(
-                            RuntimeMessagesDiscord::CallDiscordEvent(
-                                plugin.clone(),
-                                DiscordEvents::ThreadMemberUpdate(
-                                    sonic_rs::to_vec(&thread_member_update).unwrap(),
-                                ),
-                            ),
-                        ))
-                        .await;
-                }
+                Self::handle_basic_event(core_tx, "THREAD_MEMBER_UPDATE", thread_member_update);
             }
             Event::ThreadMembersUpdate(thread_members_update) => {
-                for plugin in &discord_bot_client
-                    .plugin_registrations
-                    .read()
-                    .await
-                    .discord_events
-                    .thread_members_update
-                {
-                    let _ = discord_bot_client
-                        .runtime_tx
-                        .send(RuntimeMessages::Discord(
-                            RuntimeMessagesDiscord::CallDiscordEvent(
-                                plugin.clone(),
-                                DiscordEvents::ThreadMembersUpdate(
-                                    sonic_rs::to_vec(&thread_members_update).unwrap(),
-                                ),
-                            ),
-                        ))
-                        .await;
-                }
+                Self::handle_basic_event(core_tx, "THREAD_MEMBERS_UPDATE", thread_members_update);
             }
             Event::ThreadUpdate(thread_update) => {
-                for plugin in &discord_bot_client
-                    .plugin_registrations
-                    .read()
-                    .await
-                    .discord_events
-                    .thread_update
-                {
-                    let _ = discord_bot_client
-                        .runtime_tx
-                        .send(RuntimeMessages::Discord(
-                            RuntimeMessagesDiscord::CallDiscordEvent(
-                                plugin.clone(),
-                                DiscordEvents::ThreadUpdate(
-                                    sonic_rs::to_vec(&thread_update).unwrap(),
-                                ),
-                            ),
-                        ))
-                        .await;
-                }
+                Self::handle_basic_event(core_tx, "THREAD_UPDATE", thread_update);
             }
             _ => debug!(
-                "Received an unhandled event: {}",
+                "Received unsupported event: {}",
                 &event.kind().name().unwrap_or("[No event kind name]")
             ),
+        }
+    }
+
+    pub async fn handle_basic_event<D>(
+        core_tx: Arc<UnboundedSender<CoreMessages>>,
+        key: &str,
+        data: D,
+    ) where
+        D: Serialize,
+    {
+        let (sender, receiver) = channel();
+
+        core_tx.send(CoreMessages::DatabaseModule(DatabaseMessages::Get(
+            Keyspaces::DiscordEvents,
+            key.as_bytes().to_vec(),
+            sender,
+        )));
+
+        let Some(response_bytes) = receiver.await.unwrap().unwrap() else {
+            return;
+        };
+
+        let plugin_ids_bytes = sonic_rs::from_slice::<Vec<Vec<u8>>>(&response_bytes).unwrap();
+
+        for plugin_id_bytes in plugin_ids_bytes {
+            let plugin_id = Uuid::from_slice(&plugin_id_bytes).unwrap();
+
+            core_tx.send(CoreMessages::Runtime(RuntimeMessages::Discord(
+                RuntimeMessagesDiscord::CallDiscordEvent(
+                    plugin_id,
+                    DiscordEvents::MessageCreate(sonic_rs::to_vec(&data).unwrap()),
+                ),
+            )));
         }
     }
 }

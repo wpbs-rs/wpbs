@@ -93,17 +93,11 @@ impl DiscordBotClient {
         tokio::spawn(async move {
             while let Some(message) = self.rx.recv().await {
                 match message {
-                    DiscordBotClientMessages::RegisterApplicationCommands(
-                        commands,
-                        response_sender,
-                    ) => {
-                        let http_client = self.http_client.clone();
-                        tokio::spawn(async {
-                            response_sender.send(
-                                Self::application_command_registrations(http_client, commands)
-                                    .await,
-                            );
-                        });
+                    DiscordBotClientMessages::RegisterApplicationCommands => {
+                        tokio::spawn(Self::application_command_registrations(
+                            self.http_client.clone(),
+                            self.core_tx.clone(),
+                        ));
                     }
                     DiscordBotClientMessages::Request(request, response_sender) => {
                         let http_client = self.http_client.clone();

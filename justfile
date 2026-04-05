@@ -12,6 +12,9 @@ clippy:
 clippy-fix:
   cargo clippy --fix -- -W clippy::pedantic
 
+fmt:
+  cargo fmt
+
 build-dev:
   cargo build
 

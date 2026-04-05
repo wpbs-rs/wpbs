@@ -4,23 +4,24 @@
 use std::{
     fs::{self},
     io::ErrorKind,
+    ops::RangeBounds,
     path::Path,
 };
 
 use anyhow::{Result, bail};
-use fjall::{Database, KeyspaceCreateOptions, PersistMode, Slice};
+use fjall::{Database, Iter, KeyspaceCreateOptions, PersistMode, Slice};
 
 use crate::utils::channels::DatabaseMessages;
 
 pub enum Keyspaces {
-    Plugins,
-    PluginStore,
-    DependencyFunctions,
-    ScheduledJobs,
-    DiscordEvents,
-    DiscordApplicationCommands,
-    DiscordMessageComponents,
-    DiscordModals,
+    Plugins,                    // K: Uuid; AvailablePlugin
+    PluginStore,                // K: String (Uuid-String); V: Vec<u8>
+    DependencyFunctions,        // K: String (registry_id/plugin_id): V: Uuid
+    ScheduledJobs,              // K: Uuid; V: Uuid;
+    DiscordEvents,              // K: String; V: Vec<Uuid>
+    DiscordApplicationCommands, // K: u64; V: Uuid
+    DiscordMessageComponents,   // K: Uuid; V: Uuid
+    DiscordModals,              // K: Uuid; V: Uuid
 }
 
 pub fn new(database_directory_path: &Path) -> Result<Database> {
@@ -35,17 +36,23 @@ pub fn new(database_directory_path: &Path) -> Result<Database> {
 
 pub fn handle_action(database: Database, message: DatabaseMessages) {
     match message {
-        DatabaseMessages::GetState(keyspace, key, response_sender) => {
+        DatabaseMessages::Get(keyspace, key, response_sender) => {
             response_sender.send(get(database, keyspace, key));
         }
-        DatabaseMessages::InsertState(keyspace, key, value, response_sender) => {
+        DatabaseMessages::GetAll(keyspace, response_sender) => {
+            response_sender.send(get_all(database, keyspace));
+        }
+        DatabaseMessages::Insert(keyspace, key, value, response_sender) => {
             response_sender.send(insert(database, keyspace, key, value));
         }
-        DatabaseMessages::DeleteState(keyspace, key, response_sender) => {
+        DatabaseMessages::Remove(keyspace, key, response_sender) => {
             response_sender.send(remove(database, keyspace, key));
         }
         DatabaseMessages::ContainsKey(keyspace, key, response_sender) => {
             response_sender.send(contains_key(database, keyspace, key));
+        }
+        DatabaseMessages::Clear(keyspace, response_sender) => {
+            response_sender.send(clear(database, keyspace));
         }
     }
 }
@@ -54,6 +61,23 @@ pub fn get(database: Database, keyspace: Keyspaces, key: Vec<u8>) -> Result<Opti
     let keyspace = database.keyspace(get_keyspace(keyspace), KeyspaceCreateOptions::default)?;
 
     Ok(keyspace.get(key)?)
+}
+
+// TODO: Need to look into how to support this through the MPSC channel
+pub fn range<K, R>(database: Database, keyspace: Keyspaces, range: R) -> Result<Iter>
+where
+    K: AsRef<[u8]>,
+    R: RangeBounds<K>,
+{
+    let keyspace = database.keyspace(get_keyspace(keyspace), KeyspaceCreateOptions::default)?;
+
+    Ok(keyspace.range(range))
+}
+
+pub fn get_all(database: Database, keyspace: Keyspaces) -> Result<Vec<Slice>> {
+    Ok(range(database, keyspace, Vec::new()..=Vec::new())?
+        .map(|g| g.value())
+        .collect::<std::result::Result<Vec<Slice>, fjall::Error>>()?)
 }
 
 pub fn insert(database: Database, keyspace: Keyspaces, key: Vec<u8>, value: Vec<u8>) -> Result<()> {
@@ -72,6 +96,12 @@ pub fn contains_key(database: Database, keyspace: Keyspaces, key: Vec<u8>) -> Re
     let keyspace = database.keyspace(get_keyspace(keyspace), KeyspaceCreateOptions::default)?;
 
     Ok(keyspace.contains_key(key)?)
+}
+
+pub fn clear(database: Database, keyspace: Keyspaces) -> Result<()> {
+    let keyspace = database.keyspace(get_keyspace(keyspace), KeyspaceCreateOptions::default)?;
+
+    Ok(keyspace.clear()?)
 }
 
 pub fn persist(database: Database, persist_mode: PersistMode) -> Result<()> {

@@ -4,6 +4,8 @@
 use std::{collections::HashMap, sync::Arc};
 
 use anyhow::Result;
+use fjall::Slice;
+use tokio::sync::{mpsc::UnboundedSender, oneshot::channel};
 use tracing::{error, info};
 use twilight_http::{Client, request::Request, routing::Route};
 use twilight_model::{
@@ -14,13 +16,37 @@ use twilight_model::{
     },
 };
 
-use crate::discord::DiscordBotClient;
+use crate::{
+    database::Keyspaces,
+    discord::DiscordBotClient,
+    utils::channels::{CoreMessages, DatabaseMessages},
+};
 
 impl DiscordBotClient {
     pub async fn application_command_registrations(
         http_client: Arc<Client>,
-        discord_application_command_registration_request: Vec<Vec<u8>>,
-    ) -> Result<(Vec<String>, Vec<String>)> {
+        core_tx: Arc<UnboundedSender<CoreMessages>>,
+    ) -> Result<(), ()> {
+        let (sender, receiver) = channel();
+
+        // NOTE: To be replaced by a get all KEYS
+        core_tx.send(CoreMessages::DatabaseModule(DatabaseMessages::GetAll(
+            Keyspaces::DiscordApplicationCommands,
+            sender,
+        )));
+
+        let responses: Vec<Slice> = receiver.await.unwrap().unwrap();
+
+        for response_bytes in responses {
+            // NOTE:
+            // - Should this succeed and be tested beforehand?
+            //   - No, as it can fail later anyways.
+            // - Should the plugin get called into to let it know its registration result?
+            //   - Only reasonable solution I can think of.
+            //   - Can happen from here.
+            let command: Command = sonic_rs::from_slice(&response_bytes).unwrap();
+        }
+
         let mut discord_commands = HashMap::new();
 
         let mut commands = HashMap::new();

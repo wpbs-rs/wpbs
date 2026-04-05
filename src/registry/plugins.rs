@@ -32,6 +32,6 @@ pub struct AvailablePlugin {
     pub user_id: String,
     pub version: Version,
     pub permissions: ConfigPluginPermissions,
-    pub environment: Option<HashMap<String, String>>,
-    pub settings: Option<Value>,
+    pub environment: HashMap<String, String>,
+    pub settings: Value,
 }

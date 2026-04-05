@@ -32,7 +32,7 @@ impl CoreImportFunctionsHost for InternalRuntime {
         let (sender, receiver) = channel();
 
         self.core_tx
-            .send(CoreMessages::DatabaseModule(DatabaseMessages::GetState(
+            .send(CoreMessages::DatabaseModule(DatabaseMessages::Get(
                 Keyspaces::Plugins,
                 self.plugin_id.as_bytes().to_vec(),
                 sender,
@@ -60,7 +60,7 @@ impl CoreImportFunctionsHost for InternalRuntime {
                 let key = format!("{}-{dependency_function}", self.plugin_id.to_string());
 
                 self.core_tx
-                    .send(CoreMessages::DatabaseModule(DatabaseMessages::InsertState(
+                    .send(CoreMessages::DatabaseModule(DatabaseMessages::Insert(
                         Keyspaces::DependencyFunctions,
                         key.as_bytes().to_vec(),
                         Vec::new(),
@@ -94,7 +94,7 @@ impl CoreImportFunctionsHost for InternalRuntime {
         let (sender, receiver) = channel();
 
         self.core_tx
-            .send(CoreMessages::DatabaseModule(DatabaseMessages::GetState(
+            .send(CoreMessages::DatabaseModule(DatabaseMessages::Get(
                 Keyspaces::Plugins,
                 self.plugin_id.as_bytes().to_vec(),
                 sender,
