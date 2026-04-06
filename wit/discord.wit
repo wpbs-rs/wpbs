@@ -1,8 +1,12 @@
 interface discord-import-types {
     use core-types.{json};
+    use core-import-types.{error};
 
+    /// Raw form data for Discord requests with file attachments (e.g. embeds with
+    /// images).
     type form = list<u8>;
 
+    /// All supported Discord gateway events.
     flags discord-events {
         message-create,
         interaction-create,
@@ -14,46 +18,64 @@ interface discord-import-types {
         thread-update,
     }
 
+    /// Discord gateway events the plugin can register to receive via `discord-event`.
     type supported-discord-registrations = discord-events;
 
-    /// All registrations are opt in.
+    /// Opt-in registration for Discord gateway events and interactions.
+    ///
+    /// Pass `none` for fields the plugin does not need. The plugin will only receive
+    /// what it registered for.
     record discord-registrations {
         events: option<discord-events>,
         interactions: option<discord-registrations-interactions>,
     }
 
-    /// The `application-commands` field its structure can be found in the Discord docs: https://docs.discord.com/developers/interactions/application-commands#application-command-object
+    /// Interactions to register.
+    ///
+    /// `application-commands`: Slash commands and context menus. Structure per
+    /// Discord docs: <https://docs.discord.com/developers/interactions/application-commands#application-command-object>
+    ///
+    /// `message-components`: Button/select menus. Value is the UUID count needed
+    /// by the plugin.
+    ///
+    /// `modals`: Modals. Value is the UUID count needed by the plugin.
     record discord-registrations-interactions {
         application-commands: option<list<json>>,
-        message-components: option<list<string>>,
-        modals: option<list<string>>,
+        message-components: option<u16>,
+        modals: option<u16>,
     }
 
+    /// Result of `discord-register`.
+    ///
+    /// `events`: Returns an error if the plugin tried to register for an event
+    /// it's not allowed to.
+    ///
+    /// `interactions`: Returns an error if the plugin does not have permission
+    /// to register for the `interaction-create` event.
     record discord-registrations-result {
-        events: discord-events,
-        interactions: discord-registrations-result-interactions,
+        events: option<result<_, error>>,
+        interactions: option<result<discord-registrations-result-interactions, error>>,
     }
 
-    /// The fields return separate lists of successful and failed IDs.
-    ///
-    /// The successful IDs gets mapped to host IDs which the plugin should use and then expect on events.
+    /// UUIDs for registered message components and modals.
     record discord-registrations-result-interactions {
-      application-commands: tuple<list<tuple<string, string>>, list<string>>,
-      message-components: tuple<list<tuple<string, string>>, list<string>>,
-      modals: tuple<list<tuple<string, string>>, list<string>>,
+      message-components: option<list<string>>,
+      modals: option<list<string>>,
     }
 
-    /// Check the Discord Gateway Send Event and HTTP Resource docs for the structures of the variant data: https://discord.com/developers/docs/events/gateway-events#send-events
+    /// API requests to Discord.
     ///
-    /// Message Resource Example: https://discord.com/developers/docs/resources/message
+    /// Variant data follows Discord HTTP and Gateway docs. Examples:
+    /// - Gateway commands: <https://discord.com/developers/docs/events/gateway-events#send-events>
+    /// - HTTP operations: <https://discord.com/developers/docs/resources/channel>
     variant discord-requests {
-        // Shard message sender commands
+        // Gateway commands
         request-guild-members(tuple<u64, json>),
         request-soundboard-sounds(list<u64>),
         update-voice-state(tuple<u64, json>),
         update-presence(json),
 
-        // HTTP requests
+        // HTTP operations
         add-thread-member(tuple<u64, u64>),
         create-ban(tuple<u64, u64, json>),
         create-forum-thread(tuple<u64, body>),
@@ -76,18 +98,30 @@ interface discord-import-types {
         update-interaction-original(tuple<u64, string, json>),
     }
 
+    /// Request body type: JSON for normal payloads, form-data for file attachments.
     variant body {
         json(json),
         form(form),
     }
 
+    /// API responses from Discord.
     type discord-responses = json;
 }
 
 interface discord-export-types {
     use core-types.{json};
+    use core-import-types.{error};
 
-    /// Check the Discord Gateway Event docs for the structures of the variant data: https://discord.com/developers/docs/events/gateway-events
+    /// Result of application command registrations.
+    ///
+    /// First list: successful registrations as `(command-name, snowflake)`.
+    /// Second list: failed registrations as `(command-name, error-message)`.
+    type discord-registrations-result-application-commands = tuple<list<tuple<string, u64>>, list<tuple<string, error>>>;
+
+    /// Gateway events received via `discord-event`.
+    ///
+    /// Payload is raw JSON from Discord. See:
+    /// <https://discord.com/developers/docs/events/gateway-events#receive-events>
     variant discord-events {
         interaction-create(json),
         message-create(json),
@@ -104,18 +138,33 @@ interface discord-import-functions {
     use core-import-types.{error};
     use discord-import-types.{discord-registrations, discord-registrations-result, discord-requests, discord-responses, supported-discord-registrations};
 
+    /// Returns the Discord events and interaction types the plugin can register for.
     get-supported-discord-registrations: func() -> supported-discord-registrations;
-    /// Application Command registrations past the initialization phase are ignored.
+
+    /// Registers for Discord events and interactions.
     ///
-    /// See the following Discord docs for more information: https://docs.discord.com/developers/interactions/application-commands#registering-a-command
+    /// Must be called during initialization. Application commands registered after
+    /// initialization are ignored by Discord.
+    /// <https://docs.discord.com/developers/interactions/application-commands#registering-a-command
     discord-register: func(registrations: discord-registrations) -> discord-registrations-result;
 
+    /// Makes a request to Discord API via the host.
+    ///
+    /// Returns `none` on success (Discord returns 204 No Content).
+    /// Returns `some(json)` on success with a response body.
     discord-request: func(request: discord-requests) -> result<option<discord-responses>, error>;
 }
 
 interface discord-export-functions {
     use core-export-types.{error};
-    use discord-export-types.{discord-events};
+    use discord-export-types.{discord-events, discord-registrations-result-application-commands};
 
+    /// Called when application command registration completes.
+    ///
+    /// The host doesn't know the outcome of its own register call, so it passes
+    /// the result here. Use this to log or handle failures.
+    discord-application-commands: func(registrations-result: discord-registrations-result-application-commands) -> result<_, error>;
+
+    /// Called when a registered Discord event occurs.
     discord-event: func(event: discord-events) -> result<_, error>;
 }

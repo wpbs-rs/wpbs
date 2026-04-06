@@ -22,17 +22,15 @@ use tracing_appender::non_blocking::WorkerGuard;
 mod cli;
 mod config;
 mod database;
-mod discord;
 mod http;
-mod job_scheduler;
 mod registry;
 mod runtime;
+mod services;
 mod utils;
 
 use cli::{Cli, CliLogParameters};
 use config::Config;
-use discord::DiscordBotClient;
-use job_scheduler::JobScheduler;
+use services::{discord::DiscordBotClient, job_scheduler::JobScheduler};
 use utils::{channels::Channels, env::Secrets};
 
 use crate::{

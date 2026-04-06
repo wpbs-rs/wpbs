@@ -38,9 +38,12 @@ interface core-export-types {
 interface core-import-functions {
     use core-import-types.{error, log-levels, core-registrations, core-registrations-result, supported-core-registrations};
 
+    log: func(level: log-levels, message: string);
+
     get-supported-registrations: func() -> supported-core-registrations;
     register: func(registrations: core-registrations) -> core-registrations-result;
-    log: func(level: log-levels, message: string);
+
+    unload: func(reason: string);
 
     shutdown: func(restart: bool) -> result<_, error>;
 

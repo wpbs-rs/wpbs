@@ -12,8 +12,8 @@ use uuid::Uuid;
 
 use crate::{
     database::Keyspaces,
-    discord::DiscordBotClient,
     runtime::plugins::exports::wbps::plugin::discord_export_functions::DiscordEvents,
+    services::discord::DiscordBotClient,
     utils::channels::{CoreMessages, DatabaseMessages, RuntimeMessages, RuntimeMessagesDiscord},
 };
 

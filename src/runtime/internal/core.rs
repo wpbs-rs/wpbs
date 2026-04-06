@@ -28,6 +28,16 @@ impl CoreImportTypesHost for InternalRuntime {}
 impl CoreExportTypesHost for InternalRuntime {}
 
 impl CoreImportFunctionsHost for InternalRuntime {
+    async fn log(&mut self, level: LogLevels, message: String) {
+        match level {
+            LogLevels::Trace => trace!(message),
+            LogLevels::Debug => debug!(message),
+            LogLevels::Info => info!(message),
+            LogLevels::Warn => warn!(message),
+            LogLevels::Error => error!(message),
+        }
+    }
+
     async fn get_supported_registrations(&mut self) -> SupportedCoreRegistrations {
         let (sender, receiver) = channel();
 
@@ -80,14 +90,8 @@ impl CoreImportFunctionsHost for InternalRuntime {
         result
     }
 
-    async fn log(&mut self, level: LogLevels, message: String) {
-        match level {
-            LogLevels::Trace => trace!(message),
-            LogLevels::Debug => debug!(message),
-            LogLevels::Info => info!(message),
-            LogLevels::Warn => warn!(message),
-            LogLevels::Error => error!(message),
-        }
+    async fn unload(&mut self, reason: String) {
+        todo!()
     }
 
     async fn shutdown(&mut self, restart: bool) -> Result<(), Error> {

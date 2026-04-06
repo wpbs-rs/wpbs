@@ -18,7 +18,7 @@ use twilight_model::{
 
 use crate::{
     database::Keyspaces,
-    discord::DiscordBotClient,
+    services::discord::DiscordBotClient,
     utils::channels::{CoreMessages, DatabaseMessages},
 };
 

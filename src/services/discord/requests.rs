@@ -16,10 +16,10 @@ use twilight_model::gateway::{
 };
 
 use crate::{
-    discord::DiscordBotClient,
     runtime::plugins::wbps::plugin::discord_import_types::{
         Body, DiscordRequests, DiscordResponses,
     },
+    services::discord::DiscordBotClient,
 };
 
 impl DiscordBotClient {
