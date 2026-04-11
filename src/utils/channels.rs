@@ -13,7 +13,8 @@ use crate::{
     Shutdown,
     database::Keyspaces,
     runtime::plugins::wbps::plugin::{
-        discord_export_types::DiscordEvents, discord_import_functions::DiscordRequests,
+        discord_export_types::{DiscordEvents, Error},
+        discord_import_functions::DiscordRequests,
         discord_import_types::DiscordResponses,
     },
 };
@@ -31,7 +32,8 @@ pub enum CoreMessages {
 
 pub enum DatabaseMessages {
     Get(Keyspaces, Vec<u8>, OSSender<Result<Option<Slice>>>),
-    GetAll(Keyspaces, OSSender<Result<Vec<Slice>>>),
+    GetAllKeys(Keyspaces, OSSender<Result<Vec<Slice>>>),
+    GetAllValues(Keyspaces, OSSender<Result<Vec<Slice>>>),
     Insert(Keyspaces, Vec<u8>, Vec<u8>, OSSender<Result<()>>),
     Remove(Keyspaces, Vec<u8>, OSSender<Result<()>>),
     ContainsKey(Keyspaces, Vec<u8>, OSSender<Result<bool>>),
@@ -45,12 +47,21 @@ pub enum JobSchedulerMessages {
 
 pub enum DiscordBotClientMessages {
     RegisterApplicationCommands,
-    Request(DiscordRequests, OSSender<Result<Option<DiscordResponses>>>),
+    Request(
+        DiscordRequests,
+        OSSender<Result<Option<DiscordResponses>, Error>>,
+    ),
 }
 
 pub enum RuntimeMessages {
+    Core(RuntimeMessagesCore),
     JobScheduler(RuntimeMessagesJobScheduler),
     Discord(RuntimeMessagesDiscord),
+}
+
+pub enum RuntimeMessagesCore {
+    CallDependencyFunction(Uuid, String, Vec<u8>, OSSender<Result<Vec<u8>, Error>>),
+    UnloadPlugin(Uuid),
 }
 
 pub enum RuntimeMessagesJobScheduler {

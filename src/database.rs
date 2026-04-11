@@ -39,8 +39,11 @@ pub fn handle_action(database: Database, message: DatabaseMessages) {
         DatabaseMessages::Get(keyspace, key, response_sender) => {
             response_sender.send(get(database, keyspace, key));
         }
-        DatabaseMessages::GetAll(keyspace, response_sender) => {
-            response_sender.send(get_all(database, keyspace));
+        DatabaseMessages::GetAllKeys(keyspace, response_sender) => {
+            response_sender.send(get_all_keys(database, keyspace));
+        }
+        DatabaseMessages::GetAllValues(keyspace, response_sender) => {
+            response_sender.send(get_all_values(database, keyspace));
         }
         DatabaseMessages::Insert(keyspace, key, value, response_sender) => {
             response_sender.send(insert(database, keyspace, key, value));
@@ -74,7 +77,13 @@ where
     Ok(keyspace.range(range))
 }
 
-pub fn get_all(database: Database, keyspace: Keyspaces) -> Result<Vec<Slice>> {
+pub fn get_all_keys(database: Database, keyspace: Keyspaces) -> Result<Vec<Slice>> {
+    Ok(range(database, keyspace, Vec::new()..=Vec::new())?
+        .map(|g| g.key())
+        .collect::<std::result::Result<Vec<Slice>, fjall::Error>>()?)
+}
+
+pub fn get_all_values(database: Database, keyspace: Keyspaces) -> Result<Vec<Slice>> {
     Ok(range(database, keyspace, Vec::new()..=Vec::new())?
         .map(|g| g.value())
         .collect::<std::result::Result<Vec<Slice>, fjall::Error>>()?)

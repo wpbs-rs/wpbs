@@ -5,13 +5,14 @@ mod builder;
 mod internal;
 pub mod plugins;
 
-use std::{collections::HashMap, fs, path::Path};
+use std::{collections::HashMap, fs, path::Path, sync::Arc};
 
 use anyhow::Result;
 use tokio::{
     sync::{
         Mutex, RwLock,
         mpsc::{UnboundedReceiver, UnboundedSender},
+        oneshot::Sender,
     },
     task::JoinHandle,
 };
@@ -26,15 +27,20 @@ use crate::{
     runtime::{
         builder::PluginBuilder,
         internal::InternalRuntime,
-        plugins::{Plugin, wbps::plugin::discord_export_types::DiscordEvents},
+        plugins::{
+            Plugin,
+            wbps::plugin::discord_export_types::{DiscordEvents, Error},
+        },
     },
     utils::channels::{
-        CoreMessages, RuntimeMessages, RuntimeMessagesDiscord, RuntimeMessagesJobScheduler,
+        CoreMessages, RuntimeMessages, RuntimeMessagesCore, RuntimeMessagesDiscord,
+        RuntimeMessagesJobScheduler,
     },
 };
 
 pub struct Runtime {
-    plugins: RwLock<HashMap<Uuid, RuntimePlugin>>,
+    plugins: Arc<RwLock<HashMap<Uuid, RuntimePlugin>>>,
+    core_tx: UnboundedSender<CoreMessages>,
     rx: UnboundedReceiver<RuntimeMessages>,
 }
 
@@ -44,11 +50,15 @@ pub struct RuntimePlugin {
 }
 
 impl Runtime {
-    pub fn new(rx: UnboundedReceiver<RuntimeMessages>) -> Self {
+    pub fn new(
+        core_tx: UnboundedSender<CoreMessages>,
+        rx: UnboundedReceiver<RuntimeMessages>,
+    ) -> Self {
         info!("Creating the WASI runtime");
 
         Runtime {
-            plugins: RwLock::new(HashMap::new()),
+            plugins: Arc::new(RwLock::new(HashMap::new())),
+            core_tx,
             rx,
         }
     }
@@ -57,16 +67,45 @@ impl Runtime {
         tokio::spawn(async move {
             while let Some(message) = self.rx.recv().await {
                 match message {
+                    RuntimeMessages::Core(core_message) => match core_message {
+                        RuntimeMessagesCore::CallDependencyFunction(
+                            plugin_id,
+                            function_id,
+                            params,
+                            response_sender,
+                        ) => {
+                            let plugins = self.plugins.clone();
+
+                            tokio::spawn(Self::call_dependency_function(
+                                plugins,
+                                plugin_id,
+                                function_id,
+                                params,
+                                response_sender,
+                            ));
+                        }
+                        RuntimeMessagesCore::UnloadPlugin(plugin) => {
+                            let plugins = self.plugins.clone();
+
+                            tokio::spawn(async move {
+                                plugins.write().await.remove(&plugin);
+                            });
+                        }
+                    },
                     RuntimeMessages::JobScheduler(job_scheduler_message) => {
                         match job_scheduler_message {
                             RuntimeMessagesJobScheduler::CallScheduledJob(plugin_id, job_id) => {
-                                self.call_scheduled_job(plugin_id, job_id).await;
+                                let plugins = self.plugins.clone();
+
+                                tokio::spawn(Self::call_scheduled_job(plugins, plugin_id, job_id));
                             }
                         }
                     }
                     RuntimeMessages::Discord(discord_message) => match discord_message {
                         RuntimeMessagesDiscord::CallDiscordEvent(plugin_id, event) => {
-                            self.call_discord_event(plugin_id, &event).await;
+                            let plugins = self.plugins.clone();
+
+                            tokio::spawn(Self::call_discord_event(plugins, plugin_id, event));
                         }
                     },
                 }
@@ -212,14 +251,18 @@ impl Runtime {
 
     // TODO: Remove trapped plugins
 
-    async fn call_discord_event(&self, plugin_id: Uuid, event: &DiscordEvents) {
-        let plugins = self.plugins.read().await;
+    async fn call_discord_event(
+        plugins: Arc<RwLock<HashMap<Uuid, RuntimePlugin>>>,
+        plugin_id: Uuid,
+        event: DiscordEvents,
+    ) {
+        let plugins = plugins.read().await;
         let plugin = plugins.get(&plugin_id).unwrap();
 
         match plugin
             .instance
             .wbps_plugin_discord_export_functions()
-            .call_discord_event(&mut *plugin.store.lock().await, event)
+            .call_discord_event(&mut *plugin.store.lock().await, &event)
             .await
         {
             Ok(result) => {
@@ -233,14 +276,18 @@ impl Runtime {
         }
     }
 
-    async fn call_scheduled_job(&self, plugin_id: Uuid, uuid: Uuid) {
-        let plugins = self.plugins.read().await;
+    async fn call_scheduled_job(
+        plugins: Arc<RwLock<HashMap<Uuid, RuntimePlugin>>>,
+        plugin_id: Uuid,
+        job_id: Uuid,
+    ) {
+        let plugins = plugins.read().await;
         let plugin = plugins.get(&plugin_id).unwrap();
 
         match plugin
             .instance
             .wbps_plugin_job_scheduler_export_functions()
-            .call_scheduled_job(&mut *plugin.store.lock().await, &uuid.to_string())
+            .call_scheduled_job(&mut *plugin.store.lock().await, &job_id.to_string())
             .await
         {
             Ok(result) => {
@@ -254,14 +301,43 @@ impl Runtime {
         }
     }
 
-    async fn call_shutdown(&self, plugin_id: Uuid) {
-        let plugins = self.plugins.read().await;
+    async fn call_dependency_function(
+        plugins: Arc<RwLock<HashMap<Uuid, RuntimePlugin>>>,
+        plugin_id: Uuid,
+        function_id: String,
+        params: Vec<u8>,
+        response_sender: Sender<Result<Vec<u8>, Error>>,
+    ) {
+        let plugins = plugins.read().await;
         let plugin = plugins.get(&plugin_id).unwrap();
 
         match plugin
             .instance
             .wbps_plugin_core_export_functions()
-            .call_shutdown(&mut *plugin.store.lock().await)
+            .call_dependency_function(&mut *plugin.store.lock().await, &function_id, &params)
+            .await
+        {
+            Ok(result) => {
+                response_sender.send(result);
+            }
+            Err(err) => {
+                let err = format!("The {plugin_id} plugin exprienced a critical error: {err}");
+
+                error!(err);
+
+                response_sender.send(Err(err));
+            }
+        };
+    }
+
+    async fn call_shutdown(
+        plugin_id: &Uuid,
+        instance: &Plugin,
+        store: &mut Store<InternalRuntime>,
+    ) {
+        match instance
+            .wbps_plugin_core_export_functions()
+            .call_shutdown(store)
             .await
         {
             Ok(result) => {
@@ -275,9 +351,16 @@ impl Runtime {
         }
     }
 
-    async fn shutdown(&self) {
+    async fn shutdown(self) {
         // TODO: Allow all plugin calls to finish and then call the shutdown methods
         // This will be achieved by closing the plugin call channel tasks which then will call
         // shutdown one more time before returning
+        // Bellow code will get replaced with channel closers
+
+        let plugins = &mut *self.plugins.write().await;
+
+        for (plugin_id, plugin) in plugins.into_iter() {
+            Self::call_shutdown(plugin_id, &plugin.instance, &mut *plugin.store.lock().await).await;
+        }
     }
 }

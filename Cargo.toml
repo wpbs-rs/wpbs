@@ -1,6 +1,6 @@
 [package]
-name = "wbps"
-description = "WASM based plugin services."
+name = "wpbs"
+description = "WASM plugin based services."
 version = "0.1.0"
 authors = ["Eduard Smet <contact@celarye.dev>"]
 license = "GPL-3.0-or-later"

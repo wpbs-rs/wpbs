@@ -48,7 +48,7 @@ interface core-import-functions {
     shutdown: func(restart: bool) -> result<_, error>;
 
     /// The `params` parameter and result ok value are bytes. The serialized format has to be decided between plugins.
-    dependency-function: func(dependency-id: string, function-id: string, params: list<u8>) -> result<list<u8>, error>;
+    dependency-function: func(registry-id: string, plugin-id: string, function-id: string, params: list<u8>) -> result<list<u8>, error>;
 }
 
 interface core-export-functions {

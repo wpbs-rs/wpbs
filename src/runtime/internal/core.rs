@@ -3,24 +3,25 @@
 
 use tokio::sync::oneshot::channel;
 use tracing::{debug, error, info, trace, warn};
+use uuid::Uuid;
 
 use crate::{
     Shutdown,
-    config::plugins::permissions::{ConfigPluginPermissions, ConfigSupportedCoreRegistrations},
+    config::plugins::permissions::{PluginPermissions, PluginPermissionsCore},
     database::Keyspaces,
     runtime::{
         internal::InternalRuntime,
         plugins::wbps::plugin::{
-            core_export_types::Host as CoreExportTypesHost,
+            core_export_types::{Error, Host as CoreExportTypesHost},
             core_import_functions::Host as CoreImportFunctionsHost,
             core_import_types::{
-                CoreRegistrations, CoreRegistrationsResult, Error, Host as CoreImportTypesHost,
-                LogLevels, SupportedCoreRegistrations,
+                CoreRegistrations, CoreRegistrationsResult, Host as CoreImportTypesHost, LogLevels,
+                SupportedCoreRegistrations,
             },
             core_types::Host as CoreTypesHost,
         },
     },
-    utils::channels::{CoreMessages, DatabaseMessages},
+    utils::channels::{CoreMessages, DatabaseMessages, RuntimeMessages, RuntimeMessagesCore},
 };
 
 impl CoreTypesHost for InternalRuntime {}
@@ -51,7 +52,7 @@ impl CoreImportFunctionsHost for InternalRuntime {
         let response_bytes = receiver.await.unwrap().unwrap().unwrap().to_vec();
 
         let plugin_permissions =
-            sonic_rs::from_slice::<ConfigPluginPermissions>(&response_bytes).unwrap();
+            sonic_rs::from_slice::<PluginPermissions>(&response_bytes).unwrap();
 
         plugin_permissions.core.into()
     }
@@ -67,7 +68,10 @@ impl CoreImportFunctionsHost for InternalRuntime {
             for dependency_function in dependency_functions {
                 let (sender, receiver) = channel();
 
-                let key = format!("{}-{dependency_function}", self.plugin_id.to_string());
+                let key = format!(
+                    "{}/{}/{dependency_function}",
+                    self.plugin_metadata.registry_id, self.plugin_metadata.id
+                );
 
                 self.core_tx
                     .send(CoreMessages::DatabaseModule(DatabaseMessages::Insert(
@@ -91,7 +95,15 @@ impl CoreImportFunctionsHost for InternalRuntime {
     }
 
     async fn unload(&mut self, reason: String) {
-        todo!()
+        self.core_tx
+            .send(CoreMessages::Runtime(RuntimeMessages::Core(
+                RuntimeMessagesCore::UnloadPlugin(self.plugin_id),
+            )));
+
+        info!(
+            "The {} plugin has unloaded itself, reason: {reason}",
+            self.plugin_metadata.user_id
+        )
     }
 
     async fn shutdown(&mut self, restart: bool) -> Result<(), Error> {
@@ -107,11 +119,11 @@ impl CoreImportFunctionsHost for InternalRuntime {
         let response_bytes = receiver.await.unwrap().unwrap().unwrap().to_vec();
 
         let plugin_permissions =
-            sonic_rs::from_slice::<ConfigPluginPermissions>(&response_bytes).unwrap();
+            sonic_rs::from_slice::<PluginPermissions>(&response_bytes).unwrap();
 
         if !plugin_permissions
             .core
-            .contains(&ConfigSupportedCoreRegistrations::Shutdown)
+            .contains(&PluginPermissionsCore::Shutdown)
         {
             return Err(Error::from("Not allowed to call shutdown"));
         }
@@ -129,10 +141,38 @@ impl CoreImportFunctionsHost for InternalRuntime {
 
     async fn dependency_function(
         &mut self,
-        dependency_id: String,
+        registry_id: String,
+        plugin_id: String,
         function_id: String,
         params: Vec<u8>,
     ) -> Result<Vec<u8>, Error> {
-        todo!()
+        let (sender, receiver) = channel();
+
+        let key = format!("{registry_id}/{plugin_id}/{function_id}");
+
+        self.core_tx
+            .send(CoreMessages::DatabaseModule(DatabaseMessages::Get(
+                Keyspaces::Plugins,
+                key.as_bytes().to_vec(),
+                sender,
+            )));
+
+        let Some(response_bytes) = receiver.await.unwrap().unwrap() else {
+            return Err(format!("The {key} dependency function was not found"));
+        };
+
+        let (sender, receiver) = channel();
+
+        self.core_tx
+            .send(CoreMessages::Runtime(RuntimeMessages::Core(
+                RuntimeMessagesCore::CallDependencyFunction(
+                    Uuid::from_slice(&response_bytes).unwrap(),
+                    function_id,
+                    params,
+                    sender,
+                ),
+            )));
+
+        receiver.await.unwrap()
     }
 }

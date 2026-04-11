@@ -61,7 +61,7 @@ async fn main() -> ExitCode {
         }
     }
 
-    ExitCode::from(0)
+    ExitCode::from(1)
 }
 
 async fn run() -> Result<(), ()> {
@@ -97,7 +97,7 @@ async fn run() -> Result<(), ()> {
             .await
             .map_err(|_| ())?;
 
-    let runtime = Runtime::new(channels.runtime.rx);
+    let runtime = Runtime::new(channels.runtime.core_tx.clone(), channels.runtime.rx);
 
     tasks.push(job_scheduler.start().await.map_err(|_| ())?);
 

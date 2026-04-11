@@ -1,31 +1,37 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Deserialize, Serialize)]
-pub struct ConfigPluginPermissions {
+pub struct PluginPermissions {
     #[serde(default)]
-    pub core: Vec<ConfigSupportedCoreRegistrations>,
+    pub core: Vec<PluginPermissionsCore>,
     #[serde(default)]
-    pub job_scheduler: Vec<ConfigSupportedJobSchedulerRegistrations>,
+    pub job_scheduler: Vec<PluginPermissionsJobScheduler>,
     #[serde(default)]
-    pub discord: Vec<ConfigSupportedDiscordRegistrations>,
+    pub discord: PluginPermissionsDiscord,
 }
 
-#[derive(Deserialize, PartialEq, Serialize)]
+#[derive(Default, Deserialize, Serialize)]
+pub struct PluginPermissionsDiscord {
+    pub events: Vec<PluginPermissionsDiscordEvents>,
+    pub interactions: Vec<PluginPermissionsDiscordInteractions>,
+}
+
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 #[serde(untagged)]
-pub enum ConfigSupportedCoreRegistrations {
+pub enum PluginPermissionsCore {
     DependencyFunctions,
     Shutdown,
 }
 
-#[derive(Deserialize, PartialEq, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 #[serde(untagged)]
-pub enum ConfigSupportedJobSchedulerRegistrations {
+pub enum PluginPermissionsJobScheduler {
     ScheduledJobs,
 }
 
-#[derive(Deserialize, PartialEq, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 #[serde(untagged)]
-pub enum ConfigSupportedDiscordRegistrations {
+pub enum PluginPermissionsDiscordEvents {
     MessageCreate,
     InteractionCreate,
     ThreadCreate,
@@ -34,4 +40,12 @@ pub enum ConfigSupportedDiscordRegistrations {
     ThreadMemberUpdate,
     ThreadMembersUpdate,
     ThreadUpdate,
+}
+
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
+#[serde(untagged)]
+pub enum PluginPermissionsDiscordInteractions {
+    ApplicationCommands,
+    MessageComponents,
+    Modals,
 }

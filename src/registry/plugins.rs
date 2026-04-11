@@ -7,7 +7,7 @@ use semver::Version;
 use serde::Deserialize;
 use sonic_rs::Value;
 
-use crate::config::plugins::permissions::ConfigPluginPermissions;
+use crate::config::plugins::permissions::PluginPermissions;
 
 #[derive(Deserialize)]
 #[allow(unused)]
@@ -31,7 +31,7 @@ pub struct AvailablePlugin {
     pub id: String,
     pub user_id: String,
     pub version: Version,
-    pub permissions: ConfigPluginPermissions,
+    pub permissions: PluginPermissions,
     pub environment: HashMap<String, String>,
     pub settings: Value,
 }
