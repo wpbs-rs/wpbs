@@ -1,3 +1,6 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
+/* Copyright © 2026 Eduard Smet */
+
 use std::collections::HashMap;
 
 use serde::Deserialize;

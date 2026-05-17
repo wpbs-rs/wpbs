@@ -24,8 +24,8 @@ use crate::{
 pub enum CoreMessages {
     DatabaseModule(DatabaseMessages),
 
-    JobSchedulerModule(JobSchedulerMessages),
-    DiscordBotClientModule(DiscordBotClientMessages),
+    JobScheduler(JobSchedulerMessages),
+    DiscordBotClient(DiscordBotClientMessages),
 
     Runtime(RuntimeMessages),
 
@@ -48,6 +48,7 @@ pub enum DatabaseMessages {
 pub enum JobSchedulerMessages {
     AddJob(Uuid, String, OSSender<Result<Uuid>>),
     RemoveJob(Uuid, OSSender<Result<()>>),
+    Shutdown,
 }
 
 pub enum DiscordBotClientMessages {
@@ -56,6 +57,7 @@ pub enum DiscordBotClientMessages {
         DiscordRequests,
         OSSender<Result<Option<DiscordResponses>, Error>>,
     ),
+    Shutdown,
 }
 
 pub enum RuntimeMessages {
@@ -67,6 +69,7 @@ pub enum RuntimeMessages {
 pub enum RuntimeMessagesCore {
     CallDependencyFunction(Uuid, String, Vec<u8>, OSSender<Result<Vec<u8>, Error>>),
     UnloadPlugin(Uuid),
+    Shutdown,
 }
 
 pub enum RuntimeMessagesJobScheduler {
@@ -79,6 +82,7 @@ pub enum RuntimeMessagesDiscord {
 }
 
 pub struct Channels {
+    pub core_tx: UnboundedSender<CoreMessages>,
     pub core: ChannelsCore,
     pub job_scheduler: ChannelsJobScheduler,
     pub discord_bot_client: ChannelsDiscordBotClient,
@@ -115,6 +119,7 @@ pub fn new() -> Channels {
     let (runtime_tx, runtime_rx) = unbounded_channel::<RuntimeMessages>();
 
     Channels {
+        core_tx: core_tx.clone(),
         core: ChannelsCore {
             job_scheduler_tx,
             discord_bot_client_tx,

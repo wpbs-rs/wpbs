@@ -17,8 +17,6 @@ pub enum Keyspaces {
     PluginStore,         // K: String (Uuid-String); V: Vec<u8>
     DependencyFunctions, // K: String (registry_id/plugin_id): V: Uuid
 
-    ScheduledJobs, // K: Uuid; V: Uuid;
-
     DiscordEvents,              // K: String; V: Vec<Uuid>
     DiscordApplicationCommands, // 1) K: String (Uuid-String); V: Command; 2) K: u64; V: Uuid
     DiscordMessageComponents,   // K: Uuid; V: Uuid
@@ -38,34 +36,35 @@ pub fn new(database_directory_path: &Path) -> Result<Database> {
 pub fn handle_action(database: Database, message: DatabaseMessages) {
     match message {
         DatabaseMessages::Get(keyspace, key, response_sender) => {
-            response_sender.send(get(database, keyspace, key));
+            let _ = response_sender.send(get(database, keyspace, key));
         }
         DatabaseMessages::Range(keyspace, range_start, range_end, inclusive, response_sender) => {
-            response_sender.send(range(database, keyspace, range_start, range_end, inclusive));
+            let _ =
+                response_sender.send(range(database, keyspace, range_start, range_end, inclusive));
         }
         DatabaseMessages::Prefix(keyspace, prefix_value, response_sender) => {
-            response_sender.send(prefix(database, keyspace, prefix_value));
+            let _ = response_sender.send(prefix(database, keyspace, prefix_value));
         }
         DatabaseMessages::GetAllEntries(keyspace, response_sender) => {
-            response_sender.send(get_all_entries(database, keyspace));
+            let _ = response_sender.send(get_all_entries(database, keyspace));
         }
         DatabaseMessages::GetAllKeys(keyspace, response_sender) => {
-            response_sender.send(get_all_keys(database, keyspace));
+            let _ = response_sender.send(get_all_keys(database, keyspace));
         }
         DatabaseMessages::GetAllValues(keyspace, response_sender) => {
-            response_sender.send(get_all_values(database, keyspace));
+            let _ = response_sender.send(get_all_values(database, keyspace));
         }
         DatabaseMessages::Insert(keyspace, key, value, response_sender) => {
-            response_sender.send(insert(database, keyspace, key, value));
+            let _ = response_sender.send(insert(database, keyspace, key, value));
         }
         DatabaseMessages::Remove(keyspace, key, response_sender) => {
-            response_sender.send(remove(database, keyspace, key));
+            let _ = response_sender.send(remove(database, keyspace, key));
         }
         DatabaseMessages::ContainsKey(keyspace, key, response_sender) => {
-            response_sender.send(contains_key(database, keyspace, key));
+            let _ = response_sender.send(contains_key(database, keyspace, key));
         }
         DatabaseMessages::Clear(keyspace, response_sender) => {
-            response_sender.send(clear(database, keyspace));
+            let _ = response_sender.send(clear(database, keyspace));
         }
     }
 }
@@ -89,13 +88,13 @@ pub fn range(
         return Ok(keyspace.range(range_start..=range_end));
     }
 
-    return Ok(keyspace.range(range_start..range_end));
+    Ok(keyspace.range(range_start..range_end))
 }
 
 pub fn prefix(database: Database, keyspace: Keyspaces, prefix: Vec<u8>) -> Result<Iter> {
     let keyspace = database.keyspace(get_keyspace(keyspace), KeyspaceCreateOptions::default)?;
 
-    return Ok(keyspace.prefix(prefix));
+    Ok(keyspace.prefix(prefix))
 }
 
 pub fn get_all_entries(database: Database, keyspace: Keyspaces) -> Result<Vec<(Slice, Slice)>> {
@@ -149,8 +148,6 @@ fn get_keyspace(keyspace: Keyspaces) -> &'static str {
         Keyspaces::Plugins => "plugins",
         Keyspaces::PluginStore => "plugin_store",
         Keyspaces::DependencyFunctions => "dependency_functions",
-
-        Keyspaces::ScheduledJobs => "scheduled_jobs",
 
         Keyspaces::DiscordEvents => "discord_events",
         Keyspaces::DiscordApplicationCommands => "discord_application_commands",

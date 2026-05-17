@@ -39,6 +39,39 @@ impl CoreImportFunctionsHost for InternalRuntime {
         }
     }
 
+    async fn get_state(&mut self, key: String) -> Option<Vec<u8>> {
+        let (sender, receiver) = channel();
+
+        let key = format!("{}-{key}", self.plugin_id);
+
+        self.core_tx
+            .send(CoreMessages::DatabaseModule(DatabaseMessages::Get(
+                Keyspaces::PluginStore,
+                key.as_bytes().to_vec(),
+                sender,
+            )))
+            .unwrap();
+
+        receiver.await.unwrap().unwrap().map(|v| v.to_vec())
+    }
+
+    async fn set_state(&mut self, key: String, value: Vec<u8>) -> Result<(), Error> {
+        let (sender, receiver) = channel();
+
+        let key = format!("{}-{key}", self.plugin_id);
+
+        self.core_tx
+            .send(CoreMessages::DatabaseModule(DatabaseMessages::Insert(
+                Keyspaces::PluginStore,
+                key.as_bytes().to_vec(),
+                value,
+                sender,
+            )))
+            .unwrap();
+
+        receiver.await.unwrap().map_err(|err| err.to_string())
+    }
+
     async fn get_supported_registrations(&mut self) -> SupportedCoreRegistrations {
         let (sender, receiver) = channel();
 
@@ -47,7 +80,8 @@ impl CoreImportFunctionsHost for InternalRuntime {
                 Keyspaces::Plugins,
                 self.plugin_id.as_bytes().to_vec(),
                 sender,
-            )));
+            )))
+            .unwrap();
 
         let response_bytes = receiver.await.unwrap().unwrap().unwrap().to_vec();
 
@@ -58,37 +92,60 @@ impl CoreImportFunctionsHost for InternalRuntime {
     }
 
     async fn register(&mut self, registrations: CoreRegistrations) -> CoreRegistrationsResult {
+        let (sender, receiver) = channel();
+
+        self.core_tx
+            .send(CoreMessages::DatabaseModule(DatabaseMessages::Get(
+                Keyspaces::Plugins,
+                self.plugin_id.as_bytes().to_vec(),
+                sender,
+            )))
+            .unwrap();
+
+        let response_bytes = receiver.await.unwrap().unwrap().unwrap().to_vec();
+
+        let plugin_permissions =
+            sonic_rs::from_slice::<PluginPermissions>(&response_bytes).unwrap();
+
+        if !plugin_permissions
+            .core
+            .contains(&PluginPermissionsCore::DependencyFunctions)
+        {
+            return CoreRegistrationsResult {
+                dependency_functions: Err(Error::from(
+                    "Plugin is not allowed to register dependency functions",
+                )),
+            };
+        }
+
         let mut result = CoreRegistrationsResult {
-            dependency_functions: None,
+            dependency_functions: Ok(vec![]),
         };
 
-        if let Some(dependency_functions) = registrations.dependency_functions {
-            result.dependency_functions = Some((Vec::new(), Vec::new()));
+        for dependency_function in registrations.dependency_functions {
+            let (sender, receiver) = channel();
 
-            for dependency_function in dependency_functions {
-                let (sender, receiver) = channel();
+            let key = format!(
+                "{}/{}/{dependency_function}",
+                self.plugin_metadata.registry_id, self.plugin_metadata.id
+            );
 
-                let key = format!(
-                    "{}/{}/{dependency_function}",
-                    self.plugin_metadata.registry_id, self.plugin_metadata.id
-                );
+            self.core_tx
+                .send(CoreMessages::DatabaseModule(DatabaseMessages::Insert(
+                    Keyspaces::DependencyFunctions,
+                    key.as_bytes().to_vec(),
+                    Vec::new(),
+                    sender,
+                )))
+                .unwrap();
 
-                self.core_tx
-                    .send(CoreMessages::DatabaseModule(DatabaseMessages::Insert(
-                        Keyspaces::DependencyFunctions,
-                        key.as_bytes().to_vec(),
-                        Vec::new(),
-                        sender,
-                    )));
+            receiver.await.unwrap();
 
-                let _ = receiver.await;
-                result
-                    .dependency_functions
-                    .as_mut()
-                    .unwrap()
-                    .0
-                    .push(dependency_function)
-            }
+            result
+                .dependency_functions
+                .as_mut()
+                .unwrap()
+                .push((dependency_function, key))
         }
 
         result
@@ -98,7 +155,8 @@ impl CoreImportFunctionsHost for InternalRuntime {
         self.core_tx
             .send(CoreMessages::Runtime(RuntimeMessages::Core(
                 RuntimeMessagesCore::UnloadPlugin(self.plugin_id),
-            )));
+            )))
+            .unwrap();
 
         info!(
             "The {} plugin has unloaded itself, reason: {reason}",
@@ -114,7 +172,8 @@ impl CoreImportFunctionsHost for InternalRuntime {
                 Keyspaces::Plugins,
                 self.plugin_id.as_bytes().to_vec(),
                 sender,
-            )));
+            )))
+            .unwrap();
 
         let response_bytes = receiver.await.unwrap().unwrap().unwrap().to_vec();
 
@@ -134,7 +193,9 @@ impl CoreImportFunctionsHost for InternalRuntime {
             Shutdown::Normal
         };
 
-        self.core_tx.send(CoreMessages::Shutdown(shutdown_type));
+        self.core_tx
+            .send(CoreMessages::Shutdown(shutdown_type))
+            .unwrap();
 
         Ok(())
     }
@@ -155,7 +216,8 @@ impl CoreImportFunctionsHost for InternalRuntime {
                 Keyspaces::Plugins,
                 key.as_bytes().to_vec(),
                 sender,
-            )));
+            )))
+            .unwrap();
 
         let Some(response_bytes) = receiver.await.unwrap().unwrap() else {
             return Err(format!("The {key} dependency function was not found"));
@@ -171,7 +233,8 @@ impl CoreImportFunctionsHost for InternalRuntime {
                     params,
                     sender,
                 ),
-            )));
+            )))
+            .unwrap();
 
         receiver.await.unwrap()
     }

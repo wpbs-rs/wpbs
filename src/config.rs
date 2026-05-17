@@ -3,9 +3,10 @@
 
 use std::{fs, path::Path};
 
+use anyhow::{Result, bail};
 use indexmap::IndexMap;
 use serde::Deserialize;
-use tracing::{error, info};
+use tracing::info;
 
 use crate::config::plugins::ConfigPlugin;
 
@@ -19,24 +20,22 @@ pub struct Config {
 }
 
 impl Config {
-    pub fn new(file_path: &Path) -> Result<Self, ()> {
+    pub fn new(file_path: &Path) -> Result<Self> {
         info!("Loading and parsing the config file");
 
         let file_bytes = match fs::read(file_path) {
             Ok(file_bytes) => file_bytes,
             Err(err) => {
-                error!("An error occurred while trying to read the config file: {err}");
-                return Err(());
+                bail!("An error occurred while trying to read the config file: {err}");
             }
         };
 
         match serde_yaml_ng::from_slice::<Config>(&file_bytes) {
             Ok(config) => Ok(config), // TODO: Env var interpolation
             Err(err) => {
-                error!(
+                bail!(
                     "An error occurred while trying to deserialize the config file YAML to a struct: {err}"
                 );
-                Err(())
             }
         }
     }

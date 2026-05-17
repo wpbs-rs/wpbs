@@ -45,22 +45,30 @@ impl JobScheduler {
                         let core_tx = self.core_tx.clone();
 
                         tokio::spawn(async move {
-                            result.send(
-                                Self::add_job(tokio_cron_scheduler, core_tx, plugin_id, cron).await,
-                            );
+                            result
+                                .send(
+                                    Self::add_job(tokio_cron_scheduler, core_tx, plugin_id, cron)
+                                        .await,
+                                )
+                                .unwrap();
                         });
                     }
                     JobSchedulerMessages::RemoveJob(uuid, result) => {
                         let tokio_cron_scheduler = self.tokio_cron_scheduler.clone();
 
                         tokio::spawn(async move {
-                            result.send(Self::remove_job(tokio_cron_scheduler, uuid).await);
+                            result
+                                .send(Self::remove_job(tokio_cron_scheduler, uuid).await)
+                                .unwrap();
                         });
+                    }
+                    JobSchedulerMessages::Shutdown => {
+                        self.rx.close();
                     }
                 }
             }
 
-            let _ = self.tokio_cron_scheduler.shutdown().await;
+            self.tokio_cron_scheduler.shutdown().await.unwrap();
         }))
     }
 
@@ -78,9 +86,11 @@ impl JobScheduler {
             let core_tx = core_tx.clone();
 
             Box::pin(async move {
-                let _ = core_tx.send(CoreMessages::Runtime(RuntimeMessages::JobScheduler(
-                    RuntimeMessagesJobScheduler::CallScheduledJob(plugin_id, job_id),
-                )));
+                core_tx
+                    .send(CoreMessages::Runtime(RuntimeMessages::JobScheduler(
+                        RuntimeMessagesJobScheduler::CallScheduledJob(plugin_id, job_id),
+                    )))
+                    .unwrap();
             })
         })?;
 

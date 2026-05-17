@@ -1,3 +1,6 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
+/* Copyright © 2026 Eduard Smet */
+
 interface core-types {
     type json = list<u8>;
 }
@@ -20,14 +23,14 @@ interface core-import-types {
 
     /// All registrations are opt in.
     record core-registrations {
-        dependency-functions: option<list<string>>,
+        dependency-functions: list<string>,
     }
 
     /// The `dependency-functions` field returns separate lists of successful and failed IDs.
     ///
     /// The `shutdown` field returns a result to indicate if the shutdown registration was accepted or not.
     record core-registrations-result {
-        dependency-functions: option<tuple<list<string>, list<string>>>,
+        dependency-functions: result<list<tuple<string, string>>, error>,
     }
 }
 
@@ -39,6 +42,9 @@ interface core-import-functions {
     use core-import-types.{error, log-levels, core-registrations, core-registrations-result, supported-core-registrations};
 
     log: func(level: log-levels, message: string);
+
+    get-state: func(key: string) -> option<list<u8>>;
+    set-state: func(key: string, value: list<u8>) -> result<_, error>;
 
     get-supported-registrations: func() -> supported-core-registrations;
     register: func(registrations: core-registrations) -> core-registrations-result;

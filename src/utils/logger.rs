@@ -3,13 +3,14 @@
 
 use std::{fs, io};
 
+use anyhow::{Result, bail};
 use tracing::level_filters::LevelFilter;
 use tracing_appender::{non_blocking::WorkerGuard, rolling::RollingFileAppender};
 use tracing_subscriber::{Layer, Registry, fmt, layer::SubscriberExt};
 
 use crate::cli::CliLogParameters;
 
-pub fn new(cli_log_parameters: CliLogParameters) -> Result<Option<WorkerGuard>, ()> {
+pub fn new(cli_log_parameters: CliLogParameters) -> Result<Option<WorkerGuard>> {
     if cli_log_parameters.stdout_level != LevelFilter::OFF {
         println!("Initializing the logger");
     }
@@ -18,10 +19,9 @@ pub fn new(cli_log_parameters: CliLogParameters) -> Result<Option<WorkerGuard>, 
         && !cli_log_parameters.file_directory.is_dir()
         && let Err(err) = fs::create_dir_all(&cli_log_parameters.file_directory)
     {
-        eprintln!(
+        bail!(
             "The provided logging directory does not exist and it could not be created, error: {err}"
         );
-        return Err(());
     }
 
     if cli_log_parameters.stdout_level == LevelFilter::OFF {
@@ -50,14 +50,12 @@ pub fn new(cli_log_parameters: CliLogParameters) -> Result<Option<WorkerGuard>, 
                     match tracing::subscriber::set_global_default(subscriber) {
                         Ok(()) => Ok(Some(guard)),
                         Err(err) => {
-                            eprintln!("An error occurred while initializing the logger: {err}");
-                            Err(())
+                            bail!("An error occurred while initializing the logger: {err}");
                         }
                     }
                 }
                 Err(err) => {
-                    eprintln!("An error occurred while initializing the logger: {err}");
-                    Err(())
+                    bail!("An error occurred while initializing the logger: {err}");
                 }
             }
         }
@@ -72,8 +70,7 @@ pub fn new(cli_log_parameters: CliLogParameters) -> Result<Option<WorkerGuard>, 
         match tracing::subscriber::set_global_default(subscriber) {
             Ok(()) => Ok(None),
             Err(err) => {
-                eprintln!("An error occurred while initializing the logger: {err}");
-                Err(())
+                bail!("An error occurred while initializing the logger: {err}");
             }
         }
     } else {
@@ -105,14 +102,12 @@ pub fn new(cli_log_parameters: CliLogParameters) -> Result<Option<WorkerGuard>, 
                 match tracing::subscriber::set_global_default(subscriber) {
                     Ok(()) => Ok(Some(guard)),
                     Err(err) => {
-                        eprintln!("An error occurred while initializing the logger: {err}");
-                        Err(())
+                        bail!("An error occurred while initializing the logger: {err}");
                     }
                 }
             }
             Err(err) => {
-                eprintln!("An error occurred while initializing the logger: {err}");
-                Err(())
+                bail!("An error occurred while initializing the logger: {err}");
             }
         }
     }

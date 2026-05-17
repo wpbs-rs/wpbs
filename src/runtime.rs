@@ -7,7 +7,7 @@ pub mod plugins;
 
 use std::{collections::HashMap, fs, path::Path, sync::Arc};
 
-use anyhow::Result;
+use anyhow::{Result, bail};
 use tokio::{
     sync::{
         Mutex, RwLock,
@@ -42,7 +42,6 @@ use crate::{
 
 pub struct Runtime {
     plugins: Arc<RwLock<HashMap<Uuid, RuntimePlugin>>>,
-    core_tx: UnboundedSender<CoreMessages>,
     rx: UnboundedReceiver<RuntimeMessages>,
 }
 
@@ -52,15 +51,11 @@ pub struct RuntimePlugin {
 }
 
 impl Runtime {
-    pub fn new(
-        core_tx: UnboundedSender<CoreMessages>,
-        rx: UnboundedReceiver<RuntimeMessages>,
-    ) -> Self {
+    pub fn new(rx: UnboundedReceiver<RuntimeMessages>) -> Self {
         info!("Creating the WASI runtime");
 
         Runtime {
             plugins: Arc::new(RwLock::new(HashMap::new())),
-            core_tx,
             rx,
         }
     }
@@ -92,6 +87,9 @@ impl Runtime {
                             tokio::spawn(async move {
                                 plugins.write().await.remove(&plugin);
                             });
+                        }
+                        RuntimeMessagesCore::Shutdown => {
+                            self.rx.close();
                         }
                     },
                     RuntimeMessages::JobScheduler(job_scheduler_message) => {
@@ -132,7 +130,7 @@ impl Runtime {
         available_plugins: Vec<(Uuid, AvailablePlugin)>,
         core_tx: UnboundedSender<CoreMessages>,
         plugin_directory: &Path,
-    ) -> Result<(), ()> {
+    ) -> Result<()> {
         info!("Creating the WASI plugin builder");
         let plugin_builder = PluginBuilder::new();
 
@@ -180,18 +178,17 @@ impl Runtime {
             match fs::exists(&workspace_plugin_dir) {
                 Ok(exists) => {
                     if !exists && let Err(err) = fs::create_dir(&workspace_plugin_dir) {
-                        error!(
+                        bail!(
                             "Something went wrong while creating the workspace directory for the {} plugin, error: {err}",
                             plugin_user_id
                         );
                     }
                 }
                 Err(err) => {
-                    error!(
+                    bail!(
                         "Something went wrong while checking if the workspace directory of the {} plugin exists, error: {err}",
                         plugin_user_id
                     );
-                    return Err(());
                 }
             }
 
@@ -301,14 +298,14 @@ impl Runtime {
             .await
         {
             Ok(result) => {
-                response_sender.send(result);
+                let _ = response_sender.send(result);
             }
             Err(err) => {
                 let err = format!("The {plugin_id} plugin exprienced a critical error: {err}");
 
                 error!(err);
 
-                response_sender.send(Err(err));
+                let _ = response_sender.send(Err(err));
             }
         };
     }
@@ -396,7 +393,7 @@ impl Runtime {
 
         let plugins = &mut *self.plugins.write().await;
 
-        for (plugin_id, plugin) in plugins.into_iter() {
+        for (plugin_id, plugin) in plugins {
             Self::call_shutdown(plugin_id, &plugin.instance, &mut *plugin.store.lock().await).await;
         }
     }

@@ -1,4 +1,9 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
+/* Copyright © 2026 Eduard Smet */
+
 interface job-scheduler-import-types {
+    use core-import-types.{error};
+
     flags supported-job-scheduler-registrations {
         scheduled-jobs,
     }
@@ -12,9 +17,10 @@ interface job-scheduler-import-types {
         scheduled-jobs: list<string>,
     }
 
+    /// TODO: Rewrite docs
     /// The `scheduled-jobs` field returns separate lists of successful and failed cron values.
     record job-scheduler-registrations-result {
-        scheduled-jobs: tuple<list<string>, list<string>>,
+        scheduled-jobs: result<list<tuple<string, result<string, error>>>, error>,
     }
 }
 
@@ -23,10 +29,12 @@ interface job-scheduler-export-types {
 }
 
 interface job-scheduler-import-functions {
+    use core-import-types.{error};
     use job-scheduler-import-types.{job-scheduler-registrations, job-scheduler-registrations-result, supported-job-scheduler-registrations};
 
     get-supported-registrations: func() -> supported-job-scheduler-registrations;
     register: func(registrations: job-scheduler-registrations) -> job-scheduler-registrations-result;
+    // TODO: Add: unregister: func(id: string) -> result<_, error>;
 }
 
 interface job-scheduler-export-functions {

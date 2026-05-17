@@ -34,7 +34,8 @@ impl DiscordImportFunctionsHost for InternalRuntime {
                 Keyspaces::Plugins,
                 self.plugin_id.as_bytes().to_vec(),
                 sender,
-            )));
+            )))
+            .unwrap();
 
         let response_bytes = receiver.await.unwrap().unwrap().unwrap().to_vec();
 
@@ -58,7 +59,8 @@ impl DiscordImportFunctionsHost for InternalRuntime {
                 Keyspaces::Plugins,
                 self.plugin_id.as_bytes().to_vec(),
                 sender,
-            )));
+            )))
+            .unwrap();
 
         let response_bytes = receiver.await.unwrap().unwrap().unwrap().to_vec();
 
@@ -126,9 +128,11 @@ impl DiscordImportFunctionsHost for InternalRuntime {
     ) -> Result<Option<DiscordResponses>, Error> {
         let (sender, receiver) = channel();
 
-        self.core_tx.send(CoreMessages::DiscordBotClientModule(
-            DiscordBotClientMessages::Request(request, sender),
-        ));
+        self.core_tx
+            .send(CoreMessages::DiscordBotClient(
+                DiscordBotClientMessages::Request(request, sender),
+            ))
+            .unwrap();
 
         receiver.await.unwrap()
     }

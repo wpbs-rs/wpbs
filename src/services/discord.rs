@@ -3,6 +3,7 @@
 
 use std::sync::Arc;
 
+use anyhow::{Result, bail};
 use tokio::{
     sync::mpsc::{UnboundedReceiver, UnboundedSender},
     task::JoinHandle,
@@ -37,7 +38,7 @@ impl DiscordBotClient {
         token: String,
         core_tx: UnboundedSender<CoreMessages>,
         rx: UnboundedReceiver<DiscordBotClientMessages>,
-    ) -> Result<Self, ()> {
+    ) -> Result<Self> {
         info!("Creating the Discord bot client");
 
         let intents = Intents::all(); // TODO: Make this configurable
@@ -59,11 +60,10 @@ impl DiscordBotClient {
         {
             Ok(shard_iterator) => Self::shard_message_senders(Box::new(shard_iterator)),
             Err(err) => {
-                error!(
+                bail!(
                     "Something went wrong while getting the recommended amount of shards from Discord, error: {}",
                     &err
                 );
-                return Err(());
             }
         };
 
@@ -104,15 +104,18 @@ impl DiscordBotClient {
                         let shard_message_senders = self.shard_message_senders.clone();
 
                         tokio::spawn(async {
-                            response_sender.send(
+                            let _ = response_sender.send(
                                 Self::request(http_client, shard_message_senders, request).await,
                             );
                         });
                     }
+                    DiscordBotClientMessages::Shutdown => {
+                        self.rx.close();
+                    }
                 }
             }
 
-            self.shutdown(tasks);
+            Self::shutdown(self.shard_message_senders.clone(), tasks).await;
         })
     }
 
@@ -155,8 +158,11 @@ impl DiscordBotClient {
         (shards, shard_message_senders)
     }
 
-    async fn shutdown(&self, mut tasks: Vec<JoinHandle<()>>) {
-        for shard_message_sender in self.shard_message_senders.iter() {
+    async fn shutdown(
+        shard_message_senders: Arc<Vec<MessageSender>>,
+        mut tasks: Vec<JoinHandle<()>>,
+    ) {
+        for shard_message_sender in shard_message_senders.iter() {
             _ = shard_message_sender.close(CloseFrame::NORMAL);
         }
 

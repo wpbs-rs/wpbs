@@ -14,7 +14,7 @@ use anyhow::{Result, bail};
 use semver::{Version, VersionReq};
 use serde::Deserialize;
 use tokio::fs;
-use tracing::{error, info, warn};
+use tracing::{error, info};
 use uuid::Uuid;
 
 use crate::{
@@ -45,7 +45,7 @@ pub async fn registry_get_plugins(
     config: Config,
     plugin_directory: PathBuf,
     cache: bool,
-) -> Result<Vec<(Uuid, AvailablePlugin)>, ()> {
+) -> Result<Vec<(Uuid, AvailablePlugin)>> {
     let http_client = Arc::new(HttpClient::new(http_client_timeout_seconds)?);
 
     get_plugins(http_client, config, plugin_directory, cache).await
@@ -56,7 +56,7 @@ pub async fn get_plugins(
     config: Config,
     base_plugin_directory_path: PathBuf,
     cache: bool,
-) -> Result<Vec<(Uuid, AvailablePlugin)>, ()> {
+) -> Result<Vec<(Uuid, AvailablePlugin)>> {
     info!("Fetching and storing the plugins");
 
     let mut available_plugins = vec![];
@@ -78,8 +78,7 @@ pub async fn get_plugins(
     .await;
 
     if available_plugins.is_empty() {
-        warn!("No plugins are available for the runtime");
-        return Err(());
+        bail!("No plugins are available for the runtime");
     }
 
     Ok(available_plugins)
