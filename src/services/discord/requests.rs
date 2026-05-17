@@ -15,7 +15,7 @@ use twilight_model::gateway::{
 };
 
 use crate::{
-    runtime::plugins::wbps::plugin::{
+    runtime::plugins::wpbs::plugin::{
         core_import_types::Error,
         discord_import_types::{Body, DiscordRequests, DiscordResponses},
     },

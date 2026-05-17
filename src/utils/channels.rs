@@ -2,7 +2,7 @@
 /* Copyright © 2026 Eduard Smet */
 
 use anyhow::Result;
-use fjall::Slice;
+use fjall::{Iter, Slice};
 use tokio::sync::{
     mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel},
     oneshot::Sender as OSSender,
@@ -12,8 +12,10 @@ use uuid::Uuid;
 use crate::{
     Shutdown,
     database::Keyspaces,
-    runtime::plugins::wbps::plugin::{
-        discord_export_types::{DiscordEvents, Error},
+    runtime::plugins::wpbs::plugin::{
+        discord_export_types::{
+            DiscordEvents, DiscordRegistrationsResultApplicationCommands, Error,
+        },
         discord_import_functions::DiscordRequests,
         discord_import_types::DiscordResponses,
     },
@@ -32,6 +34,9 @@ pub enum CoreMessages {
 
 pub enum DatabaseMessages {
     Get(Keyspaces, Vec<u8>, OSSender<Result<Option<Slice>>>),
+    Range(Keyspaces, Vec<u8>, Vec<u8>, bool, OSSender<Result<Iter>>),
+    Prefix(Keyspaces, Vec<u8>, OSSender<Result<Iter>>),
+    GetAllEntries(Keyspaces, OSSender<Result<Vec<(Slice, Slice)>>>),
     GetAllKeys(Keyspaces, OSSender<Result<Vec<Slice>>>),
     GetAllValues(Keyspaces, OSSender<Result<Vec<Slice>>>),
     Insert(Keyspaces, Vec<u8>, Vec<u8>, OSSender<Result<()>>),
@@ -69,6 +74,7 @@ pub enum RuntimeMessagesJobScheduler {
 }
 
 pub enum RuntimeMessagesDiscord {
+    CallDiscordApplicationCommands(Uuid, DiscordRegistrationsResultApplicationCommands),
     CallDiscordEvent(Uuid, DiscordEvents),
 }
 

@@ -29,7 +29,9 @@ use crate::{
         internal::InternalRuntime,
         plugins::{
             Plugin,
-            wbps::plugin::discord_export_types::{DiscordEvents, Error},
+            wpbs::plugin::discord_export_types::{
+                DiscordEvents, DiscordRegistrationsResultApplicationCommands, Error,
+            },
         },
     },
     utils::channels::{
@@ -102,6 +104,16 @@ impl Runtime {
                         }
                     }
                     RuntimeMessages::Discord(discord_message) => match discord_message {
+                        RuntimeMessagesDiscord::CallDiscordApplicationCommands(
+                            plugin_id,
+                            results,
+                        ) => {
+                            let plugins = self.plugins.clone();
+
+                            tokio::spawn(Self::call_discord_application_commands(
+                                plugins, plugin_id, results,
+                            ));
+                        }
                         RuntimeMessagesDiscord::CallDiscordEvent(plugin_id, event) => {
                             let plugins = self.plugins.clone();
 
@@ -216,7 +228,7 @@ impl Runtime {
                 };
 
             match instance
-                .wbps_plugin_core_export_functions()
+                .wpbs_plugin_core_export_functions()
                 .call_initialization(&mut store, &sonic_rs::to_vec(&plugin_settings).unwrap())
                 .await
             {
@@ -251,43 +263,14 @@ impl Runtime {
 
     // TODO: Remove trapped plugins
 
-    async fn call_discord_event(
-        plugins: Arc<RwLock<HashMap<Uuid, RuntimePlugin>>>,
-        plugin_id: Uuid,
-        event: DiscordEvents,
+    async fn call_shutdown(
+        plugin_id: &Uuid,
+        instance: &Plugin,
+        store: &mut Store<InternalRuntime>,
     ) {
-        let plugins = plugins.read().await;
-        let plugin = plugins.get(&plugin_id).unwrap();
-
-        match plugin
-            .instance
-            .wbps_plugin_discord_export_functions()
-            .call_discord_event(&mut *plugin.store.lock().await, &event)
-            .await
-        {
-            Ok(result) => {
-                if let Err(err) = result {
-                    error!("The {plugin_id} plugin returned an error: {err}");
-                }
-            }
-            Err(err) => {
-                error!("The {plugin_id} plugin exprienced a critical error: {err}");
-            }
-        }
-    }
-
-    async fn call_scheduled_job(
-        plugins: Arc<RwLock<HashMap<Uuid, RuntimePlugin>>>,
-        plugin_id: Uuid,
-        job_id: Uuid,
-    ) {
-        let plugins = plugins.read().await;
-        let plugin = plugins.get(&plugin_id).unwrap();
-
-        match plugin
-            .instance
-            .wbps_plugin_job_scheduler_export_functions()
-            .call_scheduled_job(&mut *plugin.store.lock().await, &job_id.to_string())
+        match instance
+            .wpbs_plugin_core_export_functions()
+            .call_shutdown(store)
             .await
         {
             Ok(result) => {
@@ -313,7 +296,7 @@ impl Runtime {
 
         match plugin
             .instance
-            .wbps_plugin_core_export_functions()
+            .wpbs_plugin_core_export_functions()
             .call_dependency_function(&mut *plugin.store.lock().await, &function_id, &params)
             .await
         {
@@ -330,14 +313,68 @@ impl Runtime {
         };
     }
 
-    async fn call_shutdown(
-        plugin_id: &Uuid,
-        instance: &Plugin,
-        store: &mut Store<InternalRuntime>,
+    async fn call_scheduled_job(
+        plugins: Arc<RwLock<HashMap<Uuid, RuntimePlugin>>>,
+        plugin_id: Uuid,
+        job_id: Uuid,
     ) {
-        match instance
-            .wbps_plugin_core_export_functions()
-            .call_shutdown(store)
+        let plugins = plugins.read().await;
+        let plugin = plugins.get(&plugin_id).unwrap();
+
+        match plugin
+            .instance
+            .wpbs_plugin_job_scheduler_export_functions()
+            .call_scheduled_job(&mut *plugin.store.lock().await, &job_id.to_string())
+            .await
+        {
+            Ok(result) => {
+                if let Err(err) = result {
+                    error!("The {plugin_id} plugin returned an error: {err}");
+                }
+            }
+            Err(err) => {
+                error!("The {plugin_id} plugin exprienced a critical error: {err}");
+            }
+        }
+    }
+
+    async fn call_discord_application_commands(
+        plugins: Arc<RwLock<HashMap<Uuid, RuntimePlugin>>>,
+        plugin_id: Uuid,
+        results: DiscordRegistrationsResultApplicationCommands,
+    ) {
+        let plugins = plugins.read().await;
+        let plugin = plugins.get(&plugin_id).unwrap();
+
+        match plugin
+            .instance
+            .wpbs_plugin_discord_export_functions()
+            .call_discord_application_commands(&mut *plugin.store.lock().await, &results)
+            .await
+        {
+            Ok(result) => {
+                if let Err(err) = result {
+                    error!("The {plugin_id} plugin returned an error: {err}");
+                }
+            }
+            Err(err) => {
+                error!("The {plugin_id} plugin exprienced a critical error: {err}");
+            }
+        }
+    }
+
+    async fn call_discord_event(
+        plugins: Arc<RwLock<HashMap<Uuid, RuntimePlugin>>>,
+        plugin_id: Uuid,
+        event: DiscordEvents,
+    ) {
+        let plugins = plugins.read().await;
+        let plugin = plugins.get(&plugin_id).unwrap();
+
+        match plugin
+            .instance
+            .wpbs_plugin_discord_export_functions()
+            .call_discord_event(&mut *plugin.store.lock().await, &event)
             .await
         {
             Ok(result) => {

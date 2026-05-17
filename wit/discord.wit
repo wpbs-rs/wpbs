@@ -134,11 +134,11 @@ interface discord-export-types {
 
     /// Result of application command registrations.
     ///
-    /// First list: Successful registrations, includes the Discord snowflake which
+    /// Ok: Successful registrations, includes the Discord snowflake which
     /// can be used to recognize the application command which got called.
     //
-    /// Second list: Failed registrations, includes an error.
-    type discord-registrations-result-application-commands = tuple<list<tuple<string, u64>>, list<tuple<string, error>>>;
+    /// Err: Failed registrations, includes an error.
+    type discord-registrations-result-application-commands = list<tuple<string, result<u64, error>>>;
 
     /// Gateway events the plugin registered for and receives.
     ///

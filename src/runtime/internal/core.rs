@@ -11,7 +11,7 @@ use crate::{
     database::Keyspaces,
     runtime::{
         internal::InternalRuntime,
-        plugins::wbps::plugin::{
+        plugins::wpbs::plugin::{
             core_export_types::{Error, Host as CoreExportTypesHost},
             core_import_functions::Host as CoreImportFunctionsHost,
             core_import_types::{

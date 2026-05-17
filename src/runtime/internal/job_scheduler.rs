@@ -3,7 +3,7 @@
 
 use crate::runtime::{
     internal::InternalRuntime,
-    plugins::wbps::plugin::{
+    plugins::wpbs::plugin::{
         job_scheduler_import_functions::Host as JobSchedulerImportFunctionsHost,
         job_scheduler_import_types::{
             Host as JobSchedulerImportTypesHost, JobSchedulerRegistrations,

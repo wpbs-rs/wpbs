@@ -12,7 +12,7 @@ use uuid::Uuid;
 
 use crate::{
     database::Keyspaces,
-    runtime::plugins::exports::wbps::plugin::discord_export_functions::DiscordEvents,
+    runtime::plugins::exports::wpbs::plugin::discord_export_functions::DiscordEvents,
     services::discord::DiscordBotClient,
     utils::channels::{CoreMessages, DatabaseMessages, RuntimeMessages, RuntimeMessagesDiscord},
 };

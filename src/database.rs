@@ -4,7 +4,6 @@
 use std::{
     fs::{self},
     io::ErrorKind,
-    ops::RangeBounds,
     path::Path,
 };
 
@@ -14,12 +13,14 @@ use fjall::{Database, Iter, KeyspaceCreateOptions, PersistMode, Slice};
 use crate::utils::channels::DatabaseMessages;
 
 pub enum Keyspaces {
-    Plugins,                    // K: Uuid; AvailablePlugin
-    PluginStore,                // K: String (Uuid-String); V: Vec<u8>
-    DependencyFunctions,        // K: String (registry_id/plugin_id): V: Uuid
-    ScheduledJobs,              // K: Uuid; V: Uuid;
+    Plugins,             // K: Uuid; AvailablePlugin
+    PluginStore,         // K: String (Uuid-String); V: Vec<u8>
+    DependencyFunctions, // K: String (registry_id/plugin_id): V: Uuid
+
+    ScheduledJobs, // K: Uuid; V: Uuid;
+
     DiscordEvents,              // K: String; V: Vec<Uuid>
-    DiscordApplicationCommands, // K: u64; V: Uuid
+    DiscordApplicationCommands, // 1) K: String (Uuid-String); V: Command; 2) K: u64; V: Uuid
     DiscordMessageComponents,   // K: Uuid; V: Uuid
     DiscordModals,              // K: Uuid; V: Uuid
 }
@@ -38,6 +39,15 @@ pub fn handle_action(database: Database, message: DatabaseMessages) {
     match message {
         DatabaseMessages::Get(keyspace, key, response_sender) => {
             response_sender.send(get(database, keyspace, key));
+        }
+        DatabaseMessages::Range(keyspace, range_start, range_end, inclusive, response_sender) => {
+            response_sender.send(range(database, keyspace, range_start, range_end, inclusive));
+        }
+        DatabaseMessages::Prefix(keyspace, prefix_value, response_sender) => {
+            response_sender.send(prefix(database, keyspace, prefix_value));
+        }
+        DatabaseMessages::GetAllEntries(keyspace, response_sender) => {
+            response_sender.send(get_all_entries(database, keyspace));
         }
         DatabaseMessages::GetAllKeys(keyspace, response_sender) => {
             response_sender.send(get_all_keys(database, keyspace));
@@ -66,25 +76,42 @@ pub fn get(database: Database, keyspace: Keyspaces, key: Vec<u8>) -> Result<Opti
     Ok(keyspace.get(key)?)
 }
 
-// TODO: Need to look into how to support this through the MPSC channel
-pub fn range<K, R>(database: Database, keyspace: Keyspaces, range: R) -> Result<Iter>
-where
-    K: AsRef<[u8]>,
-    R: RangeBounds<K>,
-{
+pub fn range(
+    database: Database,
+    keyspace: Keyspaces,
+    range_start: Vec<u8>,
+    range_end: Vec<u8>,
+    inclusive: bool,
+) -> Result<Iter> {
     let keyspace = database.keyspace(get_keyspace(keyspace), KeyspaceCreateOptions::default)?;
 
-    Ok(keyspace.range(range))
+    if inclusive {
+        return Ok(keyspace.range(range_start..=range_end));
+    }
+
+    return Ok(keyspace.range(range_start..range_end));
+}
+
+pub fn prefix(database: Database, keyspace: Keyspaces, prefix: Vec<u8>) -> Result<Iter> {
+    let keyspace = database.keyspace(get_keyspace(keyspace), KeyspaceCreateOptions::default)?;
+
+    return Ok(keyspace.prefix(prefix));
+}
+
+pub fn get_all_entries(database: Database, keyspace: Keyspaces) -> Result<Vec<(Slice, Slice)>> {
+    Ok(range(database, keyspace, Vec::new(), Vec::new(), true)?
+        .map(|g| g.into_inner())
+        .collect::<Result<Vec<(Slice, Slice)>, fjall::Error>>()?)
 }
 
 pub fn get_all_keys(database: Database, keyspace: Keyspaces) -> Result<Vec<Slice>> {
-    Ok(range(database, keyspace, Vec::new()..=Vec::new())?
+    Ok(range(database, keyspace, Vec::new(), Vec::new(), true)?
         .map(|g| g.key())
         .collect::<std::result::Result<Vec<Slice>, fjall::Error>>()?)
 }
 
 pub fn get_all_values(database: Database, keyspace: Keyspaces) -> Result<Vec<Slice>> {
-    Ok(range(database, keyspace, Vec::new()..=Vec::new())?
+    Ok(range(database, keyspace, Vec::new(), Vec::new(), true)?
         .map(|g| g.value())
         .collect::<std::result::Result<Vec<Slice>, fjall::Error>>()?)
 }
@@ -122,7 +149,9 @@ fn get_keyspace(keyspace: Keyspaces) -> &'static str {
         Keyspaces::Plugins => "plugins",
         Keyspaces::PluginStore => "plugin_store",
         Keyspaces::DependencyFunctions => "dependency_functions",
+
         Keyspaces::ScheduledJobs => "scheduled_jobs",
+
         Keyspaces::DiscordEvents => "discord_events",
         Keyspaces::DiscordApplicationCommands => "discord_application_commands",
         Keyspaces::DiscordMessageComponents => "discord_message_componets",

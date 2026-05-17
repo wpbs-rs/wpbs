@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 /* Copyright © 2026 Eduard Smet */
 
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, str::FromStr, sync::Arc};
 
 use anyhow::Result;
 use fjall::Slice;
@@ -15,11 +15,12 @@ use twilight_model::{
         marker::{ApplicationMarker, CommandMarker},
     },
 };
+use uuid::Uuid;
 
 use crate::{
     database::Keyspaces,
     services::discord::DiscordBotClient,
-    utils::channels::{CoreMessages, DatabaseMessages},
+    utils::channels::{CoreMessages, DatabaseMessages, RuntimeMessages},
 };
 
 impl DiscordBotClient {
@@ -27,46 +28,47 @@ impl DiscordBotClient {
         http_client: Arc<Client>,
         core_tx: Arc<UnboundedSender<CoreMessages>>,
     ) -> Result<(), ()> {
-        let (sender, receiver) = channel();
+        let (entries_sender, entries_receiver) = channel();
 
-        // NOTE: To be replaced by a get all KEYS
-        core_tx.send(CoreMessages::DatabaseModule(DatabaseMessages::GetAll(
+        core_tx.send(CoreMessages::DatabaseModule(
+            DatabaseMessages::GetAllEntries(Keyspaces::DiscordApplicationCommands, entries_sender),
+        ));
+
+        let entries: Vec<(Slice, Slice)> = entries_receiver.await.unwrap().unwrap();
+
+        let (clear_sender, clear_receiver) = channel();
+
+        core_tx.send(CoreMessages::DatabaseModule(DatabaseMessages::Clear(
             Keyspaces::DiscordApplicationCommands,
-            sender,
+            clear_sender,
         )));
 
-        let responses: Vec<Slice> = receiver.await.unwrap().unwrap();
-
-        for response_bytes in responses {
-            // NOTE:
-            // - Should this succeed and be tested beforehand?
-            //   - No, as it can fail later anyways.
-            // - Should the plugin get called into to let it know its registration result?
-            //   - Only reasonable solution I can think of.
-            //   - Can happen from here.
-            let command: Command = sonic_rs::from_slice(&response_bytes).unwrap();
-        }
+        clear_receiver.await.unwrap().unwrap();
 
         let mut discord_commands = HashMap::new();
 
         let mut commands = HashMap::new();
 
-        for command in discord_application_command_registration_request {
-            let command_data = match sonic_rs::from_slice::<Command>(&command) {
-                Ok(command) => command,
+        let mut results = HashMap::new();
+
+        for (key, value) in entries {
+            let key_string = String::from_utf8(key.to_vec()).unwrap();
+            let (plugin_id_str, name) = key_string.split_at(36);
+
+            let plugin_id = Uuid::from_str(plugin_id_str).unwrap();
+
+            match sonic_rs::from_slice::<Command>(&value) {
+                Ok(command_data) => commands
+                    .entry(name.to_string())
+                    .or_insert(vec![])
+                    .push((plugin_id, command_data)),
                 Err(err) => {
                     error!(
-                        "Something went wrong while deserializing a command from the {} plugin requested to register, error: {}",
-                        &command.plugin_id, &err
+                        "Something went wrong while deserializing a command from the {plugin_id} plugin requested to register, error: {err}"
                     );
                     continue;
                 }
             };
-
-            commands
-                .entry(command_data.name.clone())
-                .or_insert(vec![])
-                .push((command.plugin_id, command_data.clone()));
         }
 
         let application_id = match http_client.current_user_application().await {
@@ -205,6 +207,8 @@ impl DiscordBotClient {
             if commands_by_name.1.len() == 1 {
                 let command = commands_by_name.1.remove(0);
 
+                let plugin_results = results.entry(command.0).or_insert(vec![]);
+
                 match Self::register_application_command(
                     http_client.clone(),
                     application_id,
@@ -214,13 +218,28 @@ impl DiscordBotClient {
                 .await
                 {
                     Ok(command_id) => {
-                        // TODO: return value
+                        let (result_sender, result_receiver) = channel();
+
+                        core_tx.send(CoreMessages::DatabaseModule(DatabaseMessages::Insert(
+                            Keyspaces::DiscordApplicationCommands,
+                            command.1.name.as_bytes().to_vec(),
+                            sonic_rs::to_vec(&command_id).unwrap(),
+                            result_sender,
+                        )));
+
+                        result_receiver.await.unwrap();
+
+                        plugin_results.push((command.1.name, Ok(command_id.get())));
                     }
                     Err(()) => {
-                        error!(
+                        let err = format!(
                             "Failed to register the {} command from the {} plugin",
-                            &command.1.name, &command.0
+                            command.1.name, command.0
                         );
+
+                        error!("{err}");
+
+                        plugin_results.push((command.1.name, Err(err)));
                     }
                 }
             } else {
@@ -228,6 +247,8 @@ impl DiscordBotClient {
 
                 for mut command in commands_by_name.1 {
                     command.1.name += format!("~{command_name_occurence_count}").as_str();
+
+                    let plugin_results = results.entry(command.0).or_insert(vec![]);
 
                     match Self::register_application_command(
                         http_client.clone(),
@@ -238,13 +259,28 @@ impl DiscordBotClient {
                     .await
                     {
                         Ok(command_id) => {
-                            // TODO: return value
+                            let (result_sender, result_receiver) = channel();
+
+                            core_tx.send(CoreMessages::DatabaseModule(DatabaseMessages::Insert(
+                                Keyspaces::DiscordApplicationCommands,
+                                command.1.name.as_bytes().to_vec(),
+                                sonic_rs::to_vec(&command_id).unwrap(),
+                                result_sender,
+                            )));
+
+                            result_receiver.await.unwrap();
+
+                            plugin_results.push((command.1.name, Ok(command_id.get())));
                         }
                         Err(()) => {
-                            error!(
+                            let err = format!(
                                 "Failed to register the {} command from the {} plugin",
-                                &command.1.name, &command.0
+                                command.1.name, command.0
                             );
+
+                            error!("{err}");
+
+                            plugin_results.push((command.1.name, Err(err)));
                         }
                     }
 
@@ -255,6 +291,14 @@ impl DiscordBotClient {
 
         Self::delete_old_application_commands(http_client, application_id, &discord_commands)
             .await?;
+
+        for result in results {
+            core_tx.send(CoreMessages::Runtime(RuntimeMessages::Discord(
+                crate::utils::channels::RuntimeMessagesDiscord::CallDiscordApplicationCommands(
+                    result.0, result.1,
+                ),
+            )));
+        }
 
         Ok(())
     }

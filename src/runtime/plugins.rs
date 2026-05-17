@@ -3,7 +3,7 @@ use crate::{
         PluginPermissionsCore, PluginPermissionsDiscordEvents,
         PluginPermissionsDiscordInteractions, PluginPermissionsJobScheduler,
     },
-    runtime::plugins::wbps::plugin::{
+    runtime::plugins::wpbs::plugin::{
         core_import_types::SupportedCoreRegistrations,
         discord_import_types::{DiscordEvents, SupportedDiscordRegistrationsInteractions},
         job_scheduler_import_types::SupportedJobSchedulerRegistrations,

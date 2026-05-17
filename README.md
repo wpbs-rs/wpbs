@@ -1,4 +1,4 @@
-# wbps
+# wpbs
 
 WASM based plugin services.
 

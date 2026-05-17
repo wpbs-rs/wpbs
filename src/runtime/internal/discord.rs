@@ -8,7 +8,7 @@ use crate::{
     database::Keyspaces,
     runtime::{
         internal::InternalRuntime,
-        plugins::wbps::plugin::{
+        plugins::wpbs::plugin::{
             core_import_types::Error,
             discord_export_types::Host as DiscordExportTypesHost,
             discord_import_functions::Host as DiscordImportFunctionsHost,

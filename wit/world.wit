@@ -1,4 +1,4 @@
-package wbps:plugin@0.1.0;
+package wpbs:plugin@0.1.0;
 
 /// Down the line once map<K, V> gets introduced to the component model
 /// multiple plugin types will rely on it instead of list<tuple<K, V>> or list<V>
