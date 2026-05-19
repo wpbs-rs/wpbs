@@ -4,11 +4,13 @@
 use tokio::sync::mpsc::UnboundedSender;
 use uuid::Uuid;
 use wasmtime_wasi::{ResourceTable, WasiCtx, WasiCtxView, WasiView};
-use wasmtime_wasi_http::{WasiHttpCtx, WasiHttpView};
+use wasmtime_wasi_http::{
+    WasiHttpCtx,
+    p2::{WasiHttpCtxView, WasiHttpView},
+};
 
 mod core;
-mod discord;
-mod job_scheduler;
+mod services;
 
 use crate::{registry::plugins::AvailablePlugin, utils::channels::CoreMessages};
 
@@ -31,12 +33,12 @@ impl WasiView for InternalRuntime {
 }
 
 impl WasiHttpView for InternalRuntime {
-    fn ctx(&mut self) -> &mut WasiHttpCtx {
-        &mut self.wasi_http
-    }
-
-    fn table(&mut self) -> &mut ResourceTable {
-        &mut self.table
+    fn http(&mut self) -> WasiHttpCtxView<'_> {
+        WasiHttpCtxView {
+            ctx: &mut self.wasi_http,
+            table: &mut self.table,
+            hooks: Default::default(),
+        }
     }
 }
 

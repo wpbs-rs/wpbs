@@ -12,22 +12,22 @@ edition = "2024"
 anyhow = "1.0.102"
 bytes = "1.11.1"
 chrono = "0.4.44"
-clap = { version = "4.6.0", features = ["derive"] }
+clap = { version = "4.6.1", features = ["derive"] }
 dotenvy = "0.15.7"
-fjall = "3.1.2"
-indexmap = "2.13.1"
-reqwest = { version = "0.13.2", features = ["hickory-dns"] }
-rustls = "0.23.37"
-semver = "1.0.27"
-serde = "1.0.102"
+fjall = "3.1.4"
+indexmap = "2.14.0"
+reqwest = { version = "0.13.3", features = ["hickory-dns"] }
+rustls = "0.23.40"
+semver = "1.0.28"
+serde = "1.0.228"
 serde_yaml_ng = "0.10.0" # Should replace this with a better maintained YAML 1.2 supporting alternative
 sonic-rs = "0.5.8"
-tokio = { version = "1.51.0", features = ["full"] }
+tokio = { version = "1.52.3", features = ["full"] }
 tokio-cron-scheduler = { version = "0.15.1", features = ["english"] }
 tokio-util = "0.7.18"
 tracing = "0.1.44"
 tracing-subscriber = "0.3.23"
-tracing-appender = "0.2.4"
+tracing-appender = "0.2.5"
 twilight-cache-inmemory = { git = "https://github.com/celarye/twilight/", branch = "feat/form-buffer" }
 twilight-gateway = { git = "https://github.com/celarye/twilight/", branch = "feat/form-buffer", features = [
   "simd-json",
@@ -38,10 +38,10 @@ twilight-http = { git = "https://github.com/celarye/twilight/", branch = "feat/f
 ] }
 twilight-model = { git = "https://github.com/celarye/twilight/", branch = "feat/form-buffer" }
 url = "2.5.8"
-uuid = "1.11.1"
-wasmtime = "41"
-wasmtime-wasi = "41"
-wasmtime-wasi-http = "41"
+uuid = "1.23.1"
+wasmtime = "44.0.1"
+wasmtime-wasi = "44.0.1"
+wasmtime-wasi-http = "44.0.1"
 
 [profile.release]
 lto = true

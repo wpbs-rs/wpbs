@@ -4,7 +4,7 @@
 use std::collections::HashMap;
 
 use serde::Deserialize;
-use sonic_rs::Value;
+use serde_yaml_ng::Value;
 
 use crate::config::plugins::permissions::PluginPermissions;
 
@@ -14,6 +14,7 @@ pub mod permissions;
 pub struct ConfigPlugin {
     pub plugin: String,
     pub cache: Option<bool>,
+    #[serde(default)]
     pub permissions: PluginPermissions,
     #[serde(default)]
     pub environment: HashMap<String, String>,

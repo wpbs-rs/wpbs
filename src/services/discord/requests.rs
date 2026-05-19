@@ -19,10 +19,10 @@ use crate::{
         core_import_types::Error,
         discord_import_types::{Body, DiscordRequests, DiscordResponses},
     },
-    services::discord::DiscordBotClient,
+    services::discord::Discord,
 };
 
-impl DiscordBotClient {
+impl Discord {
     #[allow(clippy::too_many_lines)]
     pub async fn request(
         http_client: Arc<Client>,

@@ -67,7 +67,7 @@ interface discord-import-types {
     /// to register for the `interaction-create` event.
     record discord-registrations-result {
         events: option<result<_, error>>,
-        interactions: option<result<discord-registrations-result-interactions, error>>,
+        interactions: option<discord-registrations-result-interactions>,
     }
 
     /// UUIDs assigned to registered message components and modals.
@@ -75,8 +75,9 @@ interface discord-import-types {
     /// Each UUID can be used to recognize which component was clicked or modal
     /// submitted.
     record discord-registrations-result-interactions {
-      message-components: option<list<string>>,
-      modals: option<list<string>>,
+      application-commands: option<result<_, error>>,
+      message-components: option<result<list<string>, error>>,
+      modals: option<result<list<string>, error>>,
     }
 
     /// API requests to Discord.

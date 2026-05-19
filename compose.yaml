@@ -1,12 +1,12 @@
-name: discord-bot-stack
+name: wpbs-stack
 
 services:
-  discord-bot:
-    #image: ghcr.io/celarye/discord-bot:dev
+  wpbs:
+    #image: ghcr.io/wpbs-rs/wpbs:dev
     build: .
-    container_name: discord-bot
+    container_name: wpbs
     environment:
-      DISCORD_BOT_CLIENT_TOKEN: ${DISCORD_BOT_CLIENT_TOKEN}
+      DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN}
     volumes:
-      - ./discord-bot/config.yaml:/config.yaml
+      - ./wpbs/config.yaml:/config.yaml
     restart: unless-stopped

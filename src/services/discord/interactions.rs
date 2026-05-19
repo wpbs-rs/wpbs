@@ -19,11 +19,11 @@ use uuid::Uuid;
 
 use crate::{
     database::Keyspaces,
-    services::discord::DiscordBotClient,
+    services::discord::Discord,
     utils::channels::{CoreMessages, DatabaseMessages, RuntimeMessages},
 };
 
-impl DiscordBotClient {
+impl Discord {
     pub async fn application_command_registrations(
         http_client: Arc<Client>,
         core_tx: Arc<UnboundedSender<CoreMessages>>,

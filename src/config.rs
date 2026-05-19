@@ -8,14 +8,17 @@ use indexmap::IndexMap;
 use serde::Deserialize;
 use tracing::info;
 
-use crate::config::plugins::ConfigPlugin;
+use crate::config::{plugins::ConfigPlugin, services::ConfigServices};
 
 pub mod plugins;
+pub mod services;
 
 #[derive(Deserialize)]
 pub struct Config {
-    #[allow(unused)] // Will be used when multi discord bot client support gets added
+    #[allow(unused)] // Will be used when multi instance support gets added
     pub name: String,
+    #[serde(default)]
+    pub services: ConfigServices,
     pub plugins: IndexMap<String, ConfigPlugin>,
 }
 
@@ -31,7 +34,8 @@ impl Config {
         };
 
         match serde_yaml_ng::from_slice::<Config>(&file_bytes) {
-            Ok(config) => Ok(config), // TODO: Env var interpolation
+            // TODO: Add environment variable interpolation
+            Ok(config) => Ok(config),
             Err(err) => {
                 bail!(
                     "An error occurred while trying to deserialize the config file YAML to a struct: {err}"

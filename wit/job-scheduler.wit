@@ -22,6 +22,15 @@ interface job-scheduler-import-types {
     record job-scheduler-registrations-result {
         scheduled-jobs: result<list<tuple<string, result<string, error>>>, error>,
     }
+
+    record job-scheduler-deregistrations {
+        scheduled-jobs: list<string>,
+    }
+
+    record job-scheduler-deregistrations-result {
+        scheduled-jobs: list<tuple<string, result<_, error>>>,
+    }
+
 }
 
 interface job-scheduler-export-types {
@@ -30,11 +39,11 @@ interface job-scheduler-export-types {
 
 interface job-scheduler-import-functions {
     use core-import-types.{error};
-    use job-scheduler-import-types.{job-scheduler-registrations, job-scheduler-registrations-result, supported-job-scheduler-registrations};
+    use job-scheduler-import-types.{job-scheduler-deregistrations, job-scheduler-deregistrations-result, job-scheduler-registrations, job-scheduler-registrations-result, supported-job-scheduler-registrations};
 
     get-supported-registrations: func() -> supported-job-scheduler-registrations;
     register: func(registrations: job-scheduler-registrations) -> job-scheduler-registrations-result;
-    // TODO: Add: unregister: func(id: string) -> result<_, error>;
+    deregister: func(deregistrations: job-scheduler-deregistrations) -> job-scheduler-deregistrations-result;
 }
 
 interface job-scheduler-export-functions {

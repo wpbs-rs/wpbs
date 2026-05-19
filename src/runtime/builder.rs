@@ -15,9 +15,9 @@ pub struct PluginBuilder {
 
 impl PluginBuilder {
     pub fn new() -> Self {
-        let mut config = Config::new();
-        config.async_support(true);
-        // TODO: Create wasmtime epoch interuption, would maybe prevent things like permantent TCP listeners to work?
+        // NOTE: Config notes
+        // - Look into epoch interruption
+        let config = Config::new();
 
         let engine = Engine::new(&config).unwrap();
 
@@ -26,7 +26,7 @@ impl PluginBuilder {
         // - Better way to add logging support
         let mut linker = Linker::<InternalRuntime>::new(&engine);
         wasmtime_wasi::p2::add_to_linker_async(&mut linker).unwrap();
-        wasmtime_wasi_http::add_only_http_to_linker_async(&mut linker).unwrap();
+        wasmtime_wasi_http::p2::add_only_http_to_linker_async(&mut linker).unwrap();
 
         Plugin::add_to_linker::<InternalRuntime, HasSelf<InternalRuntime>>(
             &mut linker,

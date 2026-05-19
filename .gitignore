@@ -1,6 +1,7 @@
 /target
 
 /logs
+/database
 /plugins
 .env
 config.yaml

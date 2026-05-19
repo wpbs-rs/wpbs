@@ -13,11 +13,11 @@ use uuid::Uuid;
 use crate::{
     database::Keyspaces,
     runtime::plugins::exports::wpbs::plugin::discord_export_functions::DiscordEvents,
-    services::discord::DiscordBotClient,
+    services::discord::Discord,
     utils::channels::{CoreMessages, DatabaseMessages, RuntimeMessages, RuntimeMessagesDiscord},
 };
 
-impl DiscordBotClient {
+impl Discord {
     pub async fn handle_event(core_tx: Arc<UnboundedSender<CoreMessages>>, event: Event) {
         match event {
             Event::InteractionCreate(interaction_create) => {

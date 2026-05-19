@@ -1,4 +1,4 @@
-default: run-dev
+default: run-debug
 
 clean:
   cargo clean
@@ -15,13 +15,13 @@ clippy-fix:
 fmt:
   cargo fmt
 
-build-dev:
+build-debug:
   cargo build
 
 build-release:
   cargo build --release
 
-run-dev:
+run-debug:
   cargo run
 
 run-release:

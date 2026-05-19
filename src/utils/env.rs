@@ -7,8 +7,14 @@ use anyhow::{Context, Result, bail};
 use dotenvy;
 use tracing::{debug, info};
 
+use crate::config::services::ConfigServices;
+
 pub struct Secrets {
-    pub discord_bot_client: String,
+    pub discord: Option<SecretsDiscord>,
+}
+
+pub struct SecretsDiscord {
+    pub bot_token: String,
 }
 
 pub fn load_env_file(env_file_path: &Path) -> Result<()> {
@@ -26,11 +32,17 @@ pub fn load_env_file(env_file_path: &Path) -> Result<()> {
     Ok(())
 }
 
-pub fn get_secrets() -> Result<Secrets> {
-    info!("Validating the environment variables (DISCORD_BOT_CLIENT_TOKEN)");
+pub fn get_secrets(config: &ConfigServices) -> Result<Secrets> {
+    info!("Validating the environment variables");
 
-    Ok(Secrets {
-        discord_bot_client: env::var("DISCORD_BOT_CLIENT_TOKEN")
-            .context("Failed to load the DISCORD_BOT_CLIENT_TOKEN environment variable")?,
-    })
+    let mut secrets = Secrets { discord: None };
+
+    if config.discord.enabled {
+        secrets.discord = Some(SecretsDiscord {
+            bot_token: env::var("DISCORD_BOT_TOKEN")
+                .context("Failed to load the DISCORD_BOT_TOKEN environment variable")?,
+        })
+    }
+
+    Ok(secrets)
 }

@@ -11,45 +11,50 @@ use tokio::{
 use tracing::{error, info};
 use twilight_cache_inmemory::{DefaultInMemoryCache, InMemoryCache};
 use twilight_gateway::{
-    CloseFrame, Config, EventType, EventTypeFlags, Intents, MessageSender, Shard, StreamExt,
+    CloseFrame, Config, EventType, EventTypeFlags, MessageSender, Shard, StreamExt,
 };
 use twilight_http::Client;
 
 use crate::{
     SHUTDOWN,
-    utils::channels::{CoreMessages, DiscordBotClientMessages},
+    config::services::discord::{ConfigDiscord, InternalIntents},
+    utils::{
+        channels::{CoreMessages, DiscordMessages},
+        env::SecretsDiscord,
+    },
 };
 
 mod events;
 mod interactions;
 mod requests;
 
-pub struct DiscordBotClient {
+pub struct Discord {
     http_client: Arc<Client>,
     shards: Vec<Shard>,
     shard_message_senders: Arc<Vec<MessageSender>>,
     cache: Arc<InMemoryCache>,
     core_tx: Arc<UnboundedSender<CoreMessages>>,
-    rx: UnboundedReceiver<DiscordBotClientMessages>,
+    rx: UnboundedReceiver<DiscordMessages>,
 }
 
-impl DiscordBotClient {
+impl Discord {
     pub async fn new(
-        token: String,
+        config: ConfigDiscord,
+        secrets: SecretsDiscord,
         core_tx: UnboundedSender<CoreMessages>,
-        rx: UnboundedReceiver<DiscordBotClientMessages>,
+        rx: UnboundedReceiver<DiscordMessages>,
     ) -> Result<Self> {
-        info!("Creating the Discord bot client");
+        info!("Creating the Discord service");
 
-        let intents = Intents::all(); // TODO: Make this configurable
+        let intents = InternalIntents::from(config.intents).0;
 
         rustls::crypto::aws_lc_rs::default_provider()
             .install_default()
             .unwrap();
 
-        let http_client = Client::new(token.clone());
+        let http_client = Client::new(secrets.bot_token.clone());
 
-        let config = Config::new(token, intents);
+        let config = Config::new(secrets.bot_token, intents);
 
         let (shards, shard_message_senders) = match twilight_gateway::create_recommended(
             &http_client,
@@ -67,9 +72,10 @@ impl DiscordBotClient {
             }
         };
 
-        let cache = Arc::new(DefaultInMemoryCache::default()); // TODO: Make this configurable
+        // TODO: Use the in memory cache
+        let cache = Arc::new(DefaultInMemoryCache::default());
 
-        Ok(DiscordBotClient {
+        Ok(Self {
             http_client: Arc::new(http_client),
             shards,
             shard_message_senders: Arc::new(shard_message_senders),
@@ -93,13 +99,13 @@ impl DiscordBotClient {
         tokio::spawn(async move {
             while let Some(message) = self.rx.recv().await {
                 match message {
-                    DiscordBotClientMessages::RegisterApplicationCommands => {
+                    DiscordMessages::RegisterApplicationCommands => {
                         tokio::spawn(Self::application_command_registrations(
                             self.http_client.clone(),
                             self.core_tx.clone(),
                         ));
                     }
-                    DiscordBotClientMessages::Request(request, response_sender) => {
+                    DiscordMessages::Request(request, response_sender) => {
                         let http_client = self.http_client.clone();
                         let shard_message_senders = self.shard_message_senders.clone();
 
@@ -109,7 +115,7 @@ impl DiscordBotClient {
                             );
                         });
                     }
-                    DiscordBotClientMessages::Shutdown => {
+                    DiscordMessages::Shutdown => {
                         self.rx.close();
                     }
                 }

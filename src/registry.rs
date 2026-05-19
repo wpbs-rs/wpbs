@@ -11,14 +11,15 @@ use std::{
 };
 
 use anyhow::{Result, bail};
+use indexmap::IndexMap;
 use semver::{Version, VersionReq};
 use serde::Deserialize;
-use tokio::fs;
+use tokio::{fs, task::JoinHandle};
 use tracing::{error, info};
 use uuid::Uuid;
 
 use crate::{
-    config::{Config, plugins::ConfigPlugin},
+    config::plugins::ConfigPlugin,
     http::HttpClient,
     registry::plugins::{AvailablePlugin, RegistryPlugin, RegistryPluginVersion},
 };
@@ -32,8 +33,9 @@ pub struct Registry {
     pub plugins: BTreeMap<String, RegistryPlugin>,
 }
 
-type RegistryTask = Vec<tokio::task::JoinHandle<Result<Vec<(Uuid, AvailablePlugin)>>>>;
+type RegistryTask = Vec<JoinHandle<Result<Vec<(Uuid, AvailablePlugin)>>>>;
 
+// TODO: Update URL when the plugin registry moves
 static DEFAULT_REGISTRY_ID: &str =
     "raw.githubusercontent.com/celarye/discord-bot-plugins/refs/heads/master";
 
@@ -42,7 +44,7 @@ static PROGRAM_VERSION: LazyLock<Version> =
 
 pub async fn registry_get_plugins(
     http_client_timeout_seconds: u64,
-    config: Config,
+    config: IndexMap<String, ConfigPlugin>,
     plugin_directory: PathBuf,
     cache: bool,
 ) -> Result<Vec<(Uuid, AvailablePlugin)>> {
@@ -53,7 +55,7 @@ pub async fn registry_get_plugins(
 
 pub async fn get_plugins(
     http_client: Arc<HttpClient>,
-    config: Config,
+    config: IndexMap<String, ConfigPlugin>,
     base_plugin_directory_path: PathBuf,
     cache: bool,
 ) -> Result<Vec<(Uuid, AvailablePlugin)>> {
@@ -86,13 +88,13 @@ pub async fn get_plugins(
 
 async fn get_cached_plugins(
     base_plugin_directory_path: &Path,
-    config: Config,
+    config: IndexMap<String, ConfigPlugin>,
     cache: bool,
     available_plugins: &mut Vec<(Uuid, AvailablePlugin)>,
 ) -> HashMap<String, Vec<(String, ConfigPlugin)>> {
     let mut registries = HashMap::new();
 
-    for (plugin_uid, plugin_options) in config.plugins {
+    for (plugin_uid, plugin_options) in config {
         let (plugin_string, plugin_requested_version) =
             parse_plugin_string_requested_version(&plugin_options.plugin);
         let (registry_id, plugin_id) = parse_plugin_string_registry_id(plugin_string);

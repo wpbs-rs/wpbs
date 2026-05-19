@@ -7,7 +7,7 @@ use uuid::Uuid;
 
 use crate::{
     Shutdown,
-    config::plugins::permissions::{PluginPermissions, PluginPermissionsCore},
+    config::plugins::permissions::{PluginPermissions, core::PluginPermissionsCore},
     database::Keyspaces,
     runtime::{
         internal::InternalRuntime,

@@ -2,9 +2,12 @@
 /* Copyright © 2026 Eduard Smet */
 
 use tokio::sync::oneshot::channel;
+use uuid::Uuid;
 
 use crate::{
-    config::plugins::permissions::{PluginPermissions, PluginPermissionsJobScheduler},
+    config::plugins::permissions::{
+        PluginPermissions, services::job_scheduler::PluginPermissionsJobScheduler,
+    },
     database::Keyspaces,
     runtime::{
         internal::InternalRuntime,
@@ -13,13 +16,14 @@ use crate::{
             wpbs::plugin::{
                 job_scheduler_import_functions::Host as JobSchedulerImportFunctionsHost,
                 job_scheduler_import_types::{
-                    Host as JobSchedulerImportTypesHost, JobSchedulerRegistrations,
+                    Host as JobSchedulerImportTypesHost, JobSchedulerDeregistrations,
+                    JobSchedulerDeregistrationsResult, JobSchedulerRegistrations,
                     JobSchedulerRegistrationsResult, SupportedJobSchedulerRegistrations,
                 },
             },
         },
     },
-    utils::channels::{CoreMessages, DatabaseMessages},
+    utils::channels::{CoreMessages, DatabaseMessages, JobSchedulerMessages},
 };
 
 impl JobSchedulerImportTypesHost for InternalRuntime {}
@@ -42,6 +46,7 @@ impl JobSchedulerImportFunctionsHost for InternalRuntime {
             sonic_rs::from_slice::<PluginPermissions>(&response_bytes).unwrap();
 
         if !plugin_permissions
+            .services
             .job_scheduler
             .contains(&PluginPermissionsJobScheduler::ScheduledJobs)
         {
@@ -71,6 +76,7 @@ impl JobSchedulerImportFunctionsHost for InternalRuntime {
             sonic_rs::from_slice::<PluginPermissions>(&response_bytes).unwrap();
 
         if !plugin_permissions
+            .services
             .job_scheduler
             .contains(&PluginPermissionsJobScheduler::ScheduledJobs)
         {
@@ -109,6 +115,45 @@ impl JobSchedulerImportFunctionsHost for InternalRuntime {
                 .as_mut()
                 .unwrap()
                 .push((cron, job_scheduler_result));
+        }
+
+        result
+    }
+
+    async fn deregister(
+        &mut self,
+        deregistrations: JobSchedulerDeregistrations,
+    ) -> JobSchedulerDeregistrationsResult {
+        let mut result = JobSchedulerDeregistrationsResult {
+            scheduled_jobs: vec![],
+        };
+
+        for job_id_string in deregistrations.scheduled_jobs {
+            let (sender, receiver) = channel();
+
+            let job_id = match Uuid::parse_str(&job_id_string) {
+                Ok(job_id) => job_id,
+                Err(err) => {
+                    result.scheduled_jobs.push((
+                        job_id_string,
+                        Err(format!(
+                            "An error occured while parsing the job id string: {err}"
+                        )),
+                    ));
+                    continue;
+                }
+            };
+
+            self.core_tx
+                .send(CoreMessages::JobScheduler(JobSchedulerMessages::RemoveJob(
+                    job_id, sender,
+                )))
+                .unwrap();
+
+            result.scheduled_jobs.push((
+                job_id_string,
+                receiver.await.unwrap().map_err(|err| err.to_string()),
+            ))
         }
 
         result

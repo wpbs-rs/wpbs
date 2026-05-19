@@ -25,7 +25,7 @@ impl JobScheduler {
         core_tx: UnboundedSender<CoreMessages>,
         rx: UnboundedReceiver<JobSchedulerMessages>,
     ) -> Result<Self> {
-        info!("Creating the job scheduler");
+        info!("Creating the job scheduler service");
 
         Ok(JobScheduler {
             tokio_cron_scheduler: TokioCronScheduler::new().await?,

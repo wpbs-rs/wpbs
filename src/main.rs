@@ -16,7 +16,11 @@ use std::{
 use anyhow::Result;
 use clap::Parser;
 use fjall::{Database, PersistMode};
-use tokio::{signal, sync::RwLock, task::JoinHandle};
+use tokio::{
+    signal,
+    sync::{RwLock, mpsc::UnboundedSender},
+    task::JoinHandle,
+};
 use tracing::{error, info, warn};
 use tracing_appender::non_blocking::WorkerGuard;
 
@@ -31,16 +35,27 @@ mod utils;
 
 use cli::{Cli, CliLogParameters};
 use config::Config;
-use services::{discord::DiscordBotClient, job_scheduler::JobScheduler};
-use utils::{channels::Channels, env::Secrets};
+use services::{discord::Discord, job_scheduler::JobScheduler};
+use utils::channels::Channels;
 
 use crate::{
     runtime::Runtime,
     utils::channels::{
-        ChannelsCore, CoreMessages, DiscordBotClientMessages, JobSchedulerMessages,
-        RuntimeMessages, RuntimeMessagesCore,
+        ChannelsCore, CoreMessages, DiscordMessages, JobSchedulerMessages, RuntimeMessages,
+        RuntimeMessagesCore,
     },
 };
+
+#[derive()]
+struct Tasks {
+    runtime: Option<JoinHandle<()>>,
+    services: TasksServices,
+}
+
+struct TasksServices {
+    job_scheduler: Option<JoinHandle<()>>,
+    discord: Option<JoinHandle<()>>,
+}
 
 #[derive(Clone, Copy, PartialEq)]
 enum Shutdown {
@@ -49,71 +64,161 @@ enum Shutdown {
     Restart,
 }
 
-static TASKS: LazyLock<RwLock<Vec<JoinHandle<()>>>> = LazyLock::new(|| RwLock::new(vec![]));
+static TASKS: LazyLock<RwLock<Tasks>> = LazyLock::new(|| {
+    RwLock::new(Tasks {
+        runtime: None,
+        services: TasksServices {
+            job_scheduler: None,
+            discord: None,
+        },
+    })
+});
 static SHUTDOWN: LazyLock<RwLock<Option<Shutdown>>> = LazyLock::new(|| RwLock::new(None));
 
 #[tokio::main]
 async fn main() -> ExitCode {
-    let result = run().await;
+    let mut exit_code = 1;
 
-    info!("Exiting the program");
-
-    if result.is_ok() {
+    if let Err(err) = run().await {
+        error!("{err}");
+    } else {
         match SHUTDOWN.read().await.as_ref().unwrap() {
-            Shutdown::Normal => return ExitCode::from(0),
-            Shutdown::SigInt => return ExitCode::from(130),
+            Shutdown::Normal => exit_code = 0,
+            Shutdown::SigInt => exit_code = 130,
             Shutdown::Restart => restart(),
         }
     }
 
-    ExitCode::from(1)
+    info!("Exiting the program");
+
+    ExitCode::from(exit_code)
 }
 
 async fn run() -> Result<()> {
     let cli = Cli::parse();
 
-    let (_guard, secrets, channels) = initialization(cli.log_parameters, &cli.env_file)?;
+    let (_guard, channels) = initialization(cli.log_parameters, &cli.env_file)?;
+
+    shutdown_signal_listener(channels.core_tx);
 
     let config = Config::new(&cli.config_file)?;
+
+    let secrets = utils::env::get_secrets(&config.services)?;
 
     let database = database::new(&cli.database_directory)?;
 
     let core = start(database, channels.core);
 
-    let available_plugins = registry::registry_get_plugins(
-        cli.http_client_timeout_seconds,
-        config,
-        cli.plugin_directory.clone(),
-        cli.cache,
-    )
-    .await?;
+    {
+        let mut tasks = TASKS.write().await;
 
-    let discord_bot_client = DiscordBotClient::new(
-        secrets.discord_bot_client,
-        channels.discord_bot_client.core_tx,
-        channels.discord_bot_client.rx,
-    )
-    .await?;
-
-    let job_scheduler =
-        JobScheduler::new(channels.job_scheduler.core_tx, channels.job_scheduler.rx).await?;
-
-    let runtime = Runtime::new(channels.runtime.rx);
-
-    TASKS.write().await.push(job_scheduler.start().await?);
-
-    TASKS.write().await.push(discord_bot_client.start());
-
-    runtime
-        .initialize_plugins(
-            available_plugins,
-            channels.runtime.core_tx,
-            &cli.plugin_directory,
+        let available_plugins = registry::registry_get_plugins(
+            cli.http_client_timeout_seconds,
+            config.plugins,
+            cli.plugin_directory.clone(),
+            cli.cache,
         )
         .await?;
 
-    TASKS.write().await.push(runtime.start());
+        if config.services.job_scheduler.enabled {
+            let job_scheduler =
+                JobScheduler::new(channels.job_scheduler.core_tx, channels.job_scheduler.rx)
+                    .await?;
 
+            tasks.services.job_scheduler = Some(job_scheduler.start().await?);
+        }
+
+        if config.services.discord.enabled {
+            let discord = Discord::new(
+                config.services.discord,
+                secrets.discord.unwrap(),
+                channels.discord.core_tx,
+                channels.discord.rx,
+            )
+            .await?;
+
+            tasks.services.discord = Some(discord.start());
+        }
+
+        let runtime = Runtime::new(channels.runtime.rx);
+
+        runtime
+            .initialize_plugins(
+                available_plugins,
+                channels.runtime.core_tx,
+                &cli.plugin_directory,
+            )
+            .await?;
+
+        tasks.runtime = Some(runtime.start());
+    }
+
+    core.await.unwrap()
+}
+
+fn initialization(
+    cli_log_parameters: CliLogParameters,
+    env_file: &Path,
+) -> Result<(Option<WorkerGuard>, Channels)> {
+    let guard = utils::logger::new(cli_log_parameters)?;
+
+    utils::env::load_env_file(env_file)?;
+
+    let channels = utils::channels::new();
+
+    Ok((guard, channels))
+}
+
+fn start(database: Database, mut channels_core: ChannelsCore) -> JoinHandle<Result<()>> {
+    tokio::spawn(async move {
+        while let Some(core_message) = channels_core.rx.recv().await {
+            match core_message {
+                CoreMessages::DatabaseModule(database_message) => {
+                    let database = database.clone();
+
+                    tokio::spawn(async {
+                        database::handle_action(database, database_message);
+                    });
+                }
+                CoreMessages::JobScheduler(job_scheduler_message) => {
+                    channels_core
+                        .job_scheduler_tx
+                        .send(job_scheduler_message)
+                        .unwrap();
+                }
+                CoreMessages::Discord(discord_message) => {
+                    channels_core.discord_tx.send(discord_message).unwrap();
+                }
+                CoreMessages::Runtime(runtime_message) => {
+                    // May error as services can send messages to it after its channel has been closed
+                    let _ = channels_core.runtime_tx.send(runtime_message);
+                }
+                CoreMessages::Shutdown(shutdown_kind) => {
+                    {
+                        let mut shutdown_guard = SHUTDOWN.write().await;
+
+                        if let Some(shutdown_value) = *shutdown_guard
+                            && (shutdown_kind != Shutdown::SigInt
+                                || shutdown_value == Shutdown::SigInt)
+                        {
+                            continue;
+                        }
+
+                        let _ = shutdown_guard.insert(shutdown_kind);
+                    }
+
+                    shutdown(&channels_core).await;
+
+                    channels_core.rx.close();
+                }
+            }
+        }
+
+        database::persist(database, PersistMode::SyncAll)
+    })
+}
+
+fn shutdown_signal_listener(core_tx: UnboundedSender<CoreMessages>) {
     tokio::spawn(async move {
         if let Err(err) = signal::ctrl_c().await {
             error!(
@@ -134,100 +239,43 @@ async fn run() -> Result<()> {
             exit(130);
         });
 
-        channels
-            .core_tx
+        core_tx
             .send(CoreMessages::Shutdown(Shutdown::SigInt))
             .unwrap();
 
         Ok(())
     });
-
-    core.await
-}
-
-fn initialization(
-    cli_log_parameters: CliLogParameters,
-    env_file: &Path,
-) -> Result<(Option<WorkerGuard>, Secrets, Channels)> {
-    let guard = utils::logger::new(cli_log_parameters)?;
-
-    utils::env::load_env_file(env_file)?;
-
-    let secrets = utils::env::get_secrets()?;
-
-    let channels = utils::channels::new();
-
-    Ok((guard, secrets, channels))
-}
-
-async fn start(database: Database, mut channels_core: ChannelsCore) -> anyhow::Result<()> {
-    while let Some(core_message) = channels_core.rx.recv().await {
-        match core_message {
-            CoreMessages::DatabaseModule(database_message) => {
-                let database = database.clone();
-
-                tokio::spawn(async {
-                    database::handle_action(database, database_message);
-                });
-            }
-            CoreMessages::JobScheduler(job_scheduler_message) => {
-                channels_core
-                    .job_scheduler_tx
-                    .send(job_scheduler_message)
-                    .unwrap();
-            }
-            CoreMessages::DiscordBotClient(discord_bot_client_message) => {
-                channels_core
-                    .discord_bot_client_tx
-                    .send(discord_bot_client_message)
-                    .unwrap();
-            }
-            CoreMessages::Runtime(runtime_message) => {
-                channels_core.runtime_tx.send(runtime_message).unwrap();
-            }
-            CoreMessages::Shutdown(shutdown_kind) => {
-                {
-                    let mut shutdown_guard = SHUTDOWN.write().await;
-
-                    let shutdown_value = shutdown_guard.get_or_insert(shutdown_kind);
-
-                    if shutdown_kind == Shutdown::SigInt && shutdown_value != &mut Shutdown::SigInt
-                    {
-                        let _ = shutdown_guard.insert(shutdown_kind);
-                    }
-                }
-
-                shutdown(&channels_core).await;
-            }
-        }
-    }
-
-    database::persist(database, PersistMode::SyncAll)
 }
 
 async fn shutdown(channels_core: &ChannelsCore) {
     let mut tasks = TASKS.write().await;
 
-    channels_core
-        .runtime_tx
-        .send(RuntimeMessages::Core(RuntimeMessagesCore::Shutdown))
-        .unwrap();
+    if let Some(runtime) = tasks.runtime.take() {
+        channels_core
+            .runtime_tx
+            .send(RuntimeMessages::Core(RuntimeMessagesCore::Shutdown))
+            .unwrap();
 
-    tasks.pop().unwrap().await.unwrap();
+        runtime.await.unwrap();
+    }
 
-    channels_core
-        .discord_bot_client_tx
-        .send(DiscordBotClientMessages::Shutdown)
-        .unwrap();
+    if let Some(discord) = tasks.services.discord.take() {
+        channels_core
+            .discord_tx
+            .send(DiscordMessages::Shutdown)
+            .unwrap();
 
-    tasks.pop().unwrap().await.unwrap();
+        discord.await.unwrap();
+    }
 
-    channels_core
-        .job_scheduler_tx
-        .send(JobSchedulerMessages::Shutdown)
-        .unwrap();
+    if let Some(job_scheduler) = tasks.services.job_scheduler.take() {
+        channels_core
+            .job_scheduler_tx
+            .send(JobSchedulerMessages::Shutdown)
+            .unwrap();
 
-    tasks.pop().unwrap().await.unwrap();
+        job_scheduler.await.unwrap();
+    }
 }
 
 fn restart() {
@@ -243,7 +291,7 @@ fn restart() {
 
     args.pop_front();
 
-    info!("Restarting the bot");
+    info!("Restarting the program");
 
     #[cfg(target_family = "unix")]
     {

@@ -25,7 +25,7 @@ pub enum CoreMessages {
     DatabaseModule(DatabaseMessages),
 
     JobScheduler(JobSchedulerMessages),
-    DiscordBotClient(DiscordBotClientMessages),
+    Discord(DiscordMessages),
 
     Runtime(RuntimeMessages),
 
@@ -51,7 +51,7 @@ pub enum JobSchedulerMessages {
     Shutdown,
 }
 
-pub enum DiscordBotClientMessages {
+pub enum DiscordMessages {
     RegisterApplicationCommands,
     Request(
         DiscordRequests,
@@ -85,13 +85,13 @@ pub struct Channels {
     pub core_tx: UnboundedSender<CoreMessages>,
     pub core: ChannelsCore,
     pub job_scheduler: ChannelsJobScheduler,
-    pub discord_bot_client: ChannelsDiscordBotClient,
+    pub discord: ChannelsDiscord,
     pub runtime: ChannelsRuntime,
 }
 
 pub struct ChannelsCore {
     pub job_scheduler_tx: UnboundedSender<JobSchedulerMessages>,
-    pub discord_bot_client_tx: UnboundedSender<DiscordBotClientMessages>,
+    pub discord_tx: UnboundedSender<DiscordMessages>,
     pub runtime_tx: UnboundedSender<RuntimeMessages>,
     pub rx: UnboundedReceiver<CoreMessages>,
 }
@@ -101,9 +101,9 @@ pub struct ChannelsJobScheduler {
     pub rx: UnboundedReceiver<JobSchedulerMessages>,
 }
 
-pub struct ChannelsDiscordBotClient {
+pub struct ChannelsDiscord {
     pub core_tx: UnboundedSender<CoreMessages>,
-    pub rx: UnboundedReceiver<DiscordBotClientMessages>,
+    pub rx: UnboundedReceiver<DiscordMessages>,
 }
 
 pub struct ChannelsRuntime {
@@ -114,15 +114,14 @@ pub struct ChannelsRuntime {
 pub fn new() -> Channels {
     let (core_tx, core_rx) = unbounded_channel::<CoreMessages>();
     let (job_scheduler_tx, job_scheduler_rx) = unbounded_channel::<JobSchedulerMessages>();
-    let (discord_bot_client_tx, discord_bot_client_rx) =
-        unbounded_channel::<DiscordBotClientMessages>();
+    let (discord_tx, discord_rx) = unbounded_channel::<DiscordMessages>();
     let (runtime_tx, runtime_rx) = unbounded_channel::<RuntimeMessages>();
 
     Channels {
         core_tx: core_tx.clone(),
         core: ChannelsCore {
             job_scheduler_tx,
-            discord_bot_client_tx,
+            discord_tx,
             runtime_tx,
             rx: core_rx,
         },
@@ -130,9 +129,9 @@ pub fn new() -> Channels {
             core_tx: core_tx.clone(),
             rx: job_scheduler_rx,
         },
-        discord_bot_client: ChannelsDiscordBotClient {
+        discord: ChannelsDiscord {
             core_tx: core_tx.clone(),
-            rx: discord_bot_client_rx,
+            rx: discord_rx,
         },
         runtime: ChannelsRuntime {
             core_tx,
