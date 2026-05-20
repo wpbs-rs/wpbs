@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::runtime::plugins::wpbs::plugin::job_scheduler_import_types::SupportedJobSchedulerRegistrations;
 
-#[derive(Debug, Deserialize, PartialEq, Serialize)]
+#[derive(Deserialize, PartialEq, Serialize)]
 #[serde(untagged)]
 pub enum PluginPermissionsJobScheduler {
     ScheduledJobs,

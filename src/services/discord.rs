@@ -85,6 +85,7 @@ impl Discord {
         })
     }
 
+    #[hotpath::measure]
     pub fn start(mut self) -> JoinHandle<()> {
         let mut tasks = Vec::with_capacity(self.shards.len());
 

@@ -42,7 +42,7 @@ impl CoreImportFunctionsHost for InternalRuntime {
     async fn get_state(&mut self, key: String) -> Option<Vec<u8>> {
         let (sender, receiver) = channel();
 
-        let key = format!("{}-{key}", self.plugin_id);
+        let key = format!("{}-{key}", self.metadata.plugin_id);
 
         self.core_tx
             .send(CoreMessages::DatabaseModule(DatabaseMessages::Get(
@@ -58,7 +58,7 @@ impl CoreImportFunctionsHost for InternalRuntime {
     async fn set_state(&mut self, key: String, value: Vec<u8>) -> Result<(), Error> {
         let (sender, receiver) = channel();
 
-        let key = format!("{}-{key}", self.plugin_id);
+        let key = format!("{}-{key}", self.metadata.plugin_id);
 
         self.core_tx
             .send(CoreMessages::DatabaseModule(DatabaseMessages::Insert(
@@ -78,7 +78,7 @@ impl CoreImportFunctionsHost for InternalRuntime {
         self.core_tx
             .send(CoreMessages::DatabaseModule(DatabaseMessages::Get(
                 Keyspaces::Plugins,
-                self.plugin_id.as_bytes().to_vec(),
+                self.metadata.plugin_id.as_bytes().to_vec(),
                 sender,
             )))
             .unwrap();
@@ -97,7 +97,7 @@ impl CoreImportFunctionsHost for InternalRuntime {
         self.core_tx
             .send(CoreMessages::DatabaseModule(DatabaseMessages::Get(
                 Keyspaces::Plugins,
-                self.plugin_id.as_bytes().to_vec(),
+                self.metadata.plugin_id.as_bytes().to_vec(),
                 sender,
             )))
             .unwrap();
@@ -127,7 +127,7 @@ impl CoreImportFunctionsHost for InternalRuntime {
 
             let key = format!(
                 "{}/{}/{dependency_function}",
-                self.plugin_metadata.registry_id, self.plugin_metadata.id
+                self.metadata.registry_id, self.metadata.id
             );
 
             self.core_tx
@@ -154,13 +154,13 @@ impl CoreImportFunctionsHost for InternalRuntime {
     async fn unload(&mut self, reason: String) {
         self.core_tx
             .send(CoreMessages::Runtime(RuntimeMessages::Core(
-                RuntimeMessagesCore::UnloadPlugin(self.plugin_id),
+                RuntimeMessagesCore::UnloadPlugin(self.metadata.plugin_id),
             )))
             .unwrap();
 
         info!(
             "The {} plugin has unloaded itself, reason: {reason}",
-            self.plugin_metadata.user_id
+            self.metadata.user_id
         )
     }
 
@@ -170,7 +170,7 @@ impl CoreImportFunctionsHost for InternalRuntime {
         self.core_tx
             .send(CoreMessages::DatabaseModule(DatabaseMessages::Get(
                 Keyspaces::Plugins,
-                self.plugin_id.as_bytes().to_vec(),
+                self.metadata.plugin_id.as_bytes().to_vec(),
                 sender,
             )))
             .unwrap();

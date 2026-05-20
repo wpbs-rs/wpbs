@@ -53,6 +53,7 @@ pub async fn registry_get_plugins(
     get_plugins(http_client, config, plugin_directory, cache).await
 }
 
+#[hotpath::measure]
 pub async fn get_plugins(
     http_client: Arc<HttpClient>,
     config: IndexMap<String, ConfigPlugin>,

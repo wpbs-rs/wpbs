@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::runtime::plugins::wpbs::plugin::core_import_types::SupportedCoreRegistrations;
 
-#[derive(Debug, Deserialize, PartialEq, Serialize)]
+#[derive(Deserialize, PartialEq, Serialize)]
 #[serde(untagged)]
 pub enum PluginPermissionsCore {
     DependencyFunctions,

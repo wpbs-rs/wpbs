@@ -94,6 +94,7 @@ async fn main() -> ExitCode {
     ExitCode::from(exit_code)
 }
 
+#[hotpath::main]
 async fn run() -> Result<()> {
     let cli = Cli::parse();
 

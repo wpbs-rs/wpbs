@@ -5,12 +5,18 @@ mod builder;
 mod internal;
 pub mod plugins;
 
-use std::{collections::HashMap, fs, path::Path, sync::Arc};
+use std::{
+    collections::HashMap,
+    fs,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 use anyhow::{Result, bail};
+use semver::Version;
 use tokio::{
     sync::{
-        Mutex, RwLock,
+        RwLock,
         mpsc::{UnboundedReceiver, UnboundedSender},
         oneshot::Sender,
     },
@@ -19,16 +25,15 @@ use tokio::{
 use tracing::{error, info};
 use uuid::Uuid;
 use wasmtime::{Store, component::Component};
-use wasmtime_wasi::{DirPerms, FilePerms, ResourceTable, WasiCtxBuilder};
-use wasmtime_wasi_http::WasiHttpCtx;
 
 use crate::{
+    config::plugins::permissions::PluginPermissions,
     registry::plugins::AvailablePlugin,
     runtime::{
         builder::PluginBuilder,
         internal::InternalRuntime,
         plugins::{
-            Plugin,
+            Plugin, PluginPre,
             wpbs::plugin::discord_export_types::{
                 DiscordEvents, DiscordRegistrationsResultApplicationCommands, Error,
             },
@@ -42,24 +47,42 @@ use crate::{
 
 pub struct Runtime {
     plugins: Arc<RwLock<HashMap<Uuid, RuntimePlugin>>>,
+    plugin_builder: Arc<PluginBuilder>,
     rx: UnboundedReceiver<RuntimeMessages>,
 }
 
 pub struct RuntimePlugin {
-    instance: Plugin,
-    store: Mutex<Store<InternalRuntime>>, // TODO: Add async support
+    plugin_pre: PluginPre<InternalRuntime>,
+    state_pre: RuntimePluginStatePre,
+}
+
+pub struct RuntimePluginStatePre {
+    pub registry_id: Arc<String>,
+    pub id: Arc<String>,
+    pub user_id: Arc<String>,
+    pub version: Arc<Version>,
+    pub permissions: Arc<PluginPermissions>,
+    pub environment: Arc<[(String, String)]>,
+    pub workspace_directory: Arc<PathBuf>,
+    pub core_tx: UnboundedSender<CoreMessages>,
 }
 
 impl Runtime {
     pub fn new(rx: UnboundedReceiver<RuntimeMessages>) -> Self {
+        info!("Creating the WASI plugin builder");
+
+        let plugin_builder = Arc::new(PluginBuilder::new());
+
         info!("Creating the WASI runtime");
 
         Runtime {
             plugins: Arc::new(RwLock::new(HashMap::new())),
+            plugin_builder,
             rx,
         }
     }
 
+    #[hotpath::measure]
     pub fn start(mut self) -> JoinHandle<()> {
         tokio::spawn(async move {
             while let Some(message) = self.rx.recv().await {
@@ -72,9 +95,11 @@ impl Runtime {
                             response_sender,
                         ) => {
                             let plugins = self.plugins.clone();
+                            let plugin_builder = self.plugin_builder.clone();
 
                             tokio::spawn(Self::call_dependency_function(
                                 plugins,
+                                plugin_builder,
                                 plugin_id,
                                 function_id,
                                 params,
@@ -96,8 +121,14 @@ impl Runtime {
                         match job_scheduler_message {
                             RuntimeMessagesJobScheduler::CallScheduledJob(plugin_id, job_id) => {
                                 let plugins = self.plugins.clone();
+                                let plugin_builder = self.plugin_builder.clone();
 
-                                tokio::spawn(Self::call_scheduled_job(plugins, plugin_id, job_id));
+                                tokio::spawn(Self::call_scheduled_job(
+                                    plugins,
+                                    plugin_builder,
+                                    plugin_id,
+                                    job_id,
+                                ));
                             }
                         }
                     }
@@ -107,15 +138,25 @@ impl Runtime {
                             results,
                         ) => {
                             let plugins = self.plugins.clone();
+                            let plugin_builder = self.plugin_builder.clone();
 
                             tokio::spawn(Self::call_discord_application_commands(
-                                plugins, plugin_id, results,
+                                plugins,
+                                plugin_builder,
+                                plugin_id,
+                                results,
                             ));
                         }
                         RuntimeMessagesDiscord::CallDiscordEvent(plugin_id, event) => {
                             let plugins = self.plugins.clone();
+                            let plugin_builder = self.plugin_builder.clone();
 
-                            tokio::spawn(Self::call_discord_event(plugins, plugin_id, event));
+                            tokio::spawn(Self::call_discord_event(
+                                plugins,
+                                plugin_builder,
+                                plugin_id,
+                                event,
+                            ));
                         }
                     },
                 }
@@ -125,25 +166,23 @@ impl Runtime {
         })
     }
 
+    #[hotpath::measure]
     pub async fn initialize_plugins(
         &self,
         available_plugins: Vec<(Uuid, AvailablePlugin)>,
         core_tx: UnboundedSender<CoreMessages>,
         plugin_directory: &Path,
     ) -> Result<()> {
-        info!("Creating the WASI plugin builder");
-        let plugin_builder = PluginBuilder::new();
-
         info!("Initializing the plugins");
 
-        for (plugin_id, plugin) in available_plugins {
-            let plugin_user_id = plugin.user_id.clone();
-            let plugin_settings = plugin.settings.clone();
+        for (plugin_id, plugin_metadata) in available_plugins {
+            let plugin_user_id = plugin_metadata.user_id.clone();
+            let plugin_settings = plugin_metadata.settings.clone();
 
             let plugin_directory = plugin_directory
-                .join(&plugin.registry_id)
-                .join(&plugin.id)
-                .join(plugin.version.to_string());
+                .join(&plugin_metadata.registry_id)
+                .join(&plugin_metadata.id)
+                .join(plugin_metadata.version.to_string());
 
             let bytes = match fs::read(plugin_directory.join("plugin.wasm")) {
                 Ok(bytes) => bytes,
@@ -156,7 +195,7 @@ impl Runtime {
                 }
             };
 
-            let component = match Component::new(&plugin_builder.engine, bytes) {
+            let component = match Component::new(&self.plugin_builder.engine, bytes) {
                 Ok(component) => component,
                 Err(err) => {
                     error!(
@@ -167,17 +206,11 @@ impl Runtime {
                 }
             };
 
-            let env: Box<[(&str, &str)]> = plugin
-                .environment
-                .iter()
-                .map(|(k, v)| (k.as_str(), v.as_str()))
-                .collect();
+            let workspace_plugin_directory = plugin_directory.join("workspace");
 
-            let workspace_plugin_dir = plugin_directory.join("workspace");
-
-            match fs::exists(&workspace_plugin_dir) {
+            match fs::exists(&workspace_plugin_directory) {
                 Ok(exists) => {
-                    if !exists && let Err(err) = fs::create_dir(&workspace_plugin_dir) {
+                    if !exists && let Err(err) = fs::create_dir(&workspace_plugin_directory) {
                         bail!(
                             "Something went wrong while creating the workspace directory for the {} plugin, error: {err}",
                             plugin_user_id
@@ -192,64 +225,80 @@ impl Runtime {
                 }
             }
 
-            let wasi = WasiCtxBuilder::new()
-                .envs(&env)
-                .preopened_dir(workspace_plugin_dir, "/", DirPerms::all(), FilePerms::all())
-                .unwrap()
-                .build();
-
-            let mut store = Store::<InternalRuntime>::new(
-                &plugin_builder.engine,
-                InternalRuntime::new(
-                    plugin_id,
-                    plugin,
-                    wasi,
-                    WasiHttpCtx::new(),
-                    ResourceTable::new(),
-                    core_tx.clone(),
-                ),
-            );
-
-            let instance =
-                match Plugin::instantiate_async(&mut store, &component, &plugin_builder.linker)
-                    .await
-                {
-                    Ok(instance) => instance,
-                    Err(err) => {
-                        error!(
-                            "Failed to instantiate the {} plugin, error: {err}",
-                            plugin_user_id
-                        );
-                        continue;
-                    }
-                };
-
-            match instance
-                .wpbs_plugin_core_export_functions()
-                .call_initialization(&mut store, &sonic_rs::to_vec(&plugin_settings).unwrap())
-                .await
-            {
-                Ok(init_result) => {
-                    if let Err(err) = init_result {
-                        error!(
-                            "the {} plugin returned an error while intiializing: {err}",
-                            plugin_user_id
-                        );
-                        continue;
-                    }
-                }
+            let instance_pre = match self.plugin_builder.linker.instantiate_pre(&component) {
+                Ok(instance_pre) => instance_pre,
                 Err(err) => {
                     error!(
-                        "The {} plugin exprienced a critical error: {err}",
-                        plugin_user_id
+                        "The {plugin_user_id} plugin returned an error while pre_instantiating (r1): {err}"
                     );
                     continue;
                 }
             };
 
+            let plugin_pre = match PluginPre::new(instance_pre) {
+                Ok(plugin_pre) => plugin_pre,
+                Err(err) => {
+                    error!(
+                        "The {plugin_user_id} plugin returned an error while instantiating (r2): {err}"
+                    );
+                    continue;
+                }
+            };
+
+            let state_pre = RuntimePluginStatePre {
+                registry_id: Arc::new(plugin_metadata.registry_id),
+                id: Arc::new(plugin_metadata.id),
+                user_id: Arc::new(plugin_metadata.user_id),
+                version: Arc::new(plugin_metadata.version),
+                permissions: Arc::new(plugin_metadata.permissions),
+                environment: plugin_metadata
+                    .environment
+                    .into_iter()
+                    .collect::<Arc<[(String, String)]>>(),
+                workspace_directory: Arc::new(workspace_plugin_directory),
+                core_tx: core_tx.clone(),
+            };
+
+            {
+                let (instance, mut store) = match Self::instantiate(
+                    self.plugins.clone(),
+                    self.plugin_builder.clone(),
+                    plugin_id,
+                )
+                .await
+                {
+                    Ok((instance, store)) => (instance, store),
+                    Err(err) => {
+                        error!(
+                            "The {plugin_user_id} plugin returned an error while instantiating: {err}"
+                        );
+                        continue;
+                    }
+                };
+
+                match instance
+                    .wpbs_plugin_core_export_functions()
+                    .call_initialization(&mut store, &sonic_rs::to_vec(&plugin_settings).unwrap())
+                    .await
+                {
+                    Ok(init_result) => {
+                        if let Err(err) = init_result {
+                            error!(
+                                "The {plugin_user_id} plugin returned an error while intializing: {err}"
+                            );
+                            continue;
+                        }
+                    }
+                    Err(err) => {
+                        error!("The {plugin_user_id} plugin exprienced a critical error: {err}");
+                        continue;
+                    }
+                };
+            }
+
             let plugin_context = RuntimePlugin {
-                instance,
-                store: Mutex::new(store),
+                plugin_pre,
+                state_pre,
             };
 
             self.plugins.write().await.insert(plugin_id, plugin_context);
@@ -258,43 +307,48 @@ impl Runtime {
         Ok(())
     }
 
-    // TODO: Remove trapped plugins
+    async fn instantiate(
+        plugins: Arc<RwLock<HashMap<Uuid, RuntimePlugin>>>,
+        plugin_builder: Arc<PluginBuilder>,
+        plugin_id: Uuid,
+    ) -> Result<(Plugin, Store<InternalRuntime>)> {
+        let plugins = plugins.read().await;
+        let plugin = plugins.get(&plugin_id).unwrap();
 
-    async fn call_shutdown(
-        plugin_id: &Uuid,
-        instance: &Plugin,
-        store: &mut Store<InternalRuntime>,
-    ) {
-        match instance
-            .wpbs_plugin_core_export_functions()
-            .call_shutdown(store)
-            .await
-        {
-            Ok(result) => {
-                if let Err(err) = result {
-                    error!("The {plugin_id} plugin returned an error: {err}");
-                }
-            }
+        let mut store = plugin_builder.store_builder(plugin_id, &plugin.state_pre);
+
+        match plugin.plugin_pre.instantiate_async(&mut store).await {
+            Ok(instance) => Ok((instance, store)),
             Err(err) => {
-                error!("The {plugin_id} plugin exprienced a critical error: {err}");
+                bail!(
+                    "Failed to instantiate the {} plugin, error: {err}",
+                    plugin.state_pre.user_id
+                );
             }
         }
     }
 
+    // TODO: Remove trapped plugins
+
     async fn call_dependency_function(
         plugins: Arc<RwLock<HashMap<Uuid, RuntimePlugin>>>,
+        plugin_builder: Arc<PluginBuilder>,
         plugin_id: Uuid,
         function_id: String,
         params: Vec<u8>,
         response_sender: Sender<Result<Vec<u8>, Error>>,
     ) {
-        let plugins = plugins.read().await;
-        let plugin = plugins.get(&plugin_id).unwrap();
+        let (instance, store) = match Self::instantiate(plugins, plugin_builder, plugin_id).await {
+            Ok((instance, store)) => (instance, store),
+            Err(err) => {
+                error!("{err}");
+                return;
+            }
+        };
 
-        match plugin
-            .instance
+        match instance
             .wpbs_plugin_core_export_functions()
-            .call_dependency_function(&mut *plugin.store.lock().await, &function_id, &params)
+            .call_dependency_function(store, &function_id, &params)
             .await
         {
             Ok(result) => {
@@ -312,16 +366,21 @@ impl Runtime {
 
     async fn call_scheduled_job(
         plugins: Arc<RwLock<HashMap<Uuid, RuntimePlugin>>>,
+        plugin_builder: Arc<PluginBuilder>,
         plugin_id: Uuid,
         job_id: Uuid,
     ) {
-        let plugins = plugins.read().await;
-        let plugin = plugins.get(&plugin_id).unwrap();
+        let (instance, store) = match Self::instantiate(plugins, plugin_builder, plugin_id).await {
+            Ok((instance, store)) => (instance, store),
+            Err(err) => {
+                error!("{err}");
+                return;
+            }
+        };
 
-        match plugin
-            .instance
+        match instance
             .wpbs_plugin_job_scheduler_export_functions()
-            .call_scheduled_job(&mut *plugin.store.lock().await, &job_id.to_string())
+            .call_scheduled_job(store, &job_id.to_string())
             .await
         {
             Ok(result) => {
@@ -337,16 +396,21 @@ impl Runtime {
 
     async fn call_discord_application_commands(
         plugins: Arc<RwLock<HashMap<Uuid, RuntimePlugin>>>,
+        plugin_builder: Arc<PluginBuilder>,
         plugin_id: Uuid,
         results: DiscordRegistrationsResultApplicationCommands,
     ) {
-        let plugins = plugins.read().await;
-        let plugin = plugins.get(&plugin_id).unwrap();
+        let (instance, store) = match Self::instantiate(plugins, plugin_builder, plugin_id).await {
+            Ok((instance, store)) => (instance, store),
+            Err(err) => {
+                error!("{err}");
+                return;
+            }
+        };
 
-        match plugin
-            .instance
+        match instance
             .wpbs_plugin_discord_export_functions()
-            .call_discord_application_commands(&mut *plugin.store.lock().await, &results)
+            .call_discord_application_commands(store, &results)
             .await
         {
             Ok(result) => {
@@ -362,16 +426,21 @@ impl Runtime {
 
     async fn call_discord_event(
         plugins: Arc<RwLock<HashMap<Uuid, RuntimePlugin>>>,
+        plugin_builder: Arc<PluginBuilder>,
         plugin_id: Uuid,
         event: DiscordEvents,
     ) {
-        let plugins = plugins.read().await;
-        let plugin = plugins.get(&plugin_id).unwrap();
+        let (instance, store) = match Self::instantiate(plugins, plugin_builder, plugin_id).await {
+            Ok((instance, store)) => (instance, store),
+            Err(err) => {
+                error!("{err}");
+                return;
+            }
+        };
 
-        match plugin
-            .instance
+        match instance
             .wpbs_plugin_discord_export_functions()
-            .call_discord_event(&mut *plugin.store.lock().await, &event)
+            .call_discord_event(store, &event)
             .await
         {
             Ok(result) => {
@@ -391,10 +460,36 @@ impl Runtime {
         // shutdown one more time before returning
         // Bellow code will get replaced with channel closers
 
-        let plugins = &mut *self.plugins.write().await;
+        for (plugin_id, plugin) in self.plugins.write().await.drain() {
+            let mut store = self
+                .plugin_builder
+                .store_builder(plugin_id, &plugin.state_pre);
 
-        for (plugin_id, plugin) in plugins {
-            Self::call_shutdown(plugin_id, &plugin.instance, &mut *plugin.store.lock().await).await;
+            let instance = match plugin.plugin_pre.instantiate_async(&mut store).await {
+                Ok(instance) => instance,
+                Err(err) => {
+                    error!(
+                        "Failed to instantiate the {} plugin, error: {err}",
+                        plugin.state_pre.user_id
+                    );
+                    continue;
+                }
+            };
+
+            match instance
+                .wpbs_plugin_core_export_functions()
+                .call_shutdown(store)
+                .await
+            {
+                Ok(result) => {
+                    if let Err(err) = result {
+                        error!("The {plugin_id} plugin returned an error: {err}");
+                    }
+                }
+                Err(err) => {
+                    error!("The {plugin_id} plugin exprienced a critical error: {err}");
+                }
+            }
         }
     }
 }

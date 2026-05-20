@@ -109,7 +109,7 @@ impl From<DiscordEvents> for Vec<PluginPermissionsDiscordEvents> {
     }
 }
 
-#[derive(Debug, Deserialize, PartialEq, Serialize)]
+#[derive(Deserialize, PartialEq, Serialize)]
 #[serde(untagged)]
 pub enum PluginPermissionsDiscordInteractions {
     ApplicationCommands,

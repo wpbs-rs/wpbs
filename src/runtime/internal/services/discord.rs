@@ -36,7 +36,7 @@ impl DiscordImportFunctionsHost for InternalRuntime {
         self.core_tx
             .send(CoreMessages::DatabaseModule(DatabaseMessages::Get(
                 Keyspaces::Plugins,
-                self.plugin_id.as_bytes().to_vec(),
+                self.metadata.plugin_id.as_bytes().to_vec(),
                 sender,
             )))
             .unwrap();
@@ -61,7 +61,7 @@ impl DiscordImportFunctionsHost for InternalRuntime {
         self.core_tx
             .send(CoreMessages::DatabaseModule(DatabaseMessages::Get(
                 Keyspaces::Plugins,
-                self.plugin_id.as_bytes().to_vec(),
+                self.metadata.plugin_id.as_bytes().to_vec(),
                 sender,
             )))
             .unwrap();
@@ -126,7 +126,9 @@ impl DiscordImportFunctionsHost for InternalRuntime {
                     self.core_tx
                         .send(CoreMessages::DatabaseModule(DatabaseMessages::Insert(
                             Keyspaces::DiscordApplicationCommands,
-                            format!("{}:{count}", self.plugin_id).as_bytes().to_vec(),
+                            format!("{}:{count}", self.metadata.plugin_id)
+                                .as_bytes()
+                                .to_vec(),
                             application_command,
                             sender,
                         )))
@@ -160,7 +162,7 @@ impl DiscordImportFunctionsHost for InternalRuntime {
                         .send(CoreMessages::DatabaseModule(DatabaseMessages::Insert(
                             Keyspaces::DiscordMessageComponents,
                             uuid.as_bytes().to_vec(),
-                            self.plugin_id.as_bytes().to_vec(),
+                            self.metadata.plugin_id.as_bytes().to_vec(),
                             sender,
                         )))
                         .unwrap();
@@ -203,7 +205,7 @@ impl DiscordImportFunctionsHost for InternalRuntime {
                         .send(CoreMessages::DatabaseModule(DatabaseMessages::Insert(
                             Keyspaces::DiscordModals,
                             uuid.as_bytes().to_vec(),
-                            self.plugin_id.as_bytes().to_vec(),
+                            self.metadata.plugin_id.as_bytes().to_vec(),
                             sender,
                         )))
                         .unwrap();

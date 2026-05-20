@@ -35,7 +35,7 @@ impl JobSchedulerImportFunctionsHost for InternalRuntime {
         self.core_tx
             .send(CoreMessages::DatabaseModule(DatabaseMessages::Get(
                 Keyspaces::Plugins,
-                self.plugin_id.as_bytes().to_vec(),
+                self.metadata.plugin_id.as_bytes().to_vec(),
                 sender,
             )))
             .unwrap();
@@ -65,7 +65,7 @@ impl JobSchedulerImportFunctionsHost for InternalRuntime {
         self.core_tx
             .send(CoreMessages::DatabaseModule(DatabaseMessages::Get(
                 Keyspaces::Plugins,
-                self.plugin_id.as_bytes().to_vec(),
+                self.metadata.plugin_id.as_bytes().to_vec(),
                 sender,
             )))
             .unwrap();
@@ -97,7 +97,7 @@ impl JobSchedulerImportFunctionsHost for InternalRuntime {
             self.core_tx
                 .send(CoreMessages::JobScheduler(
                     crate::utils::channels::JobSchedulerMessages::AddJob(
-                        self.plugin_id,
+                        self.metadata.plugin_id,
                         cron.clone(),
                         sender,
                     ),

@@ -34,6 +34,7 @@ impl JobScheduler {
         })
     }
 
+    #[hotpath::measure]
     pub async fn start(mut self) -> Result<JoinHandle<()>> {
         self.tokio_cron_scheduler.start().await?;
 

@@ -7,6 +7,9 @@ license = "GPL-3.0-or-later"
 edition = "2024"
 
 [features]
+hotpath = ["hotpath/hotpath"]
+hotpath-cpu = ["hotpath/hotpath-cpu"]
+hotpath-alloc = ["hotpath/hotpath-alloc"]
 
 [dependencies]
 anyhow = "1.0.102"
@@ -15,6 +18,7 @@ chrono = "0.4.44"
 clap = { version = "4.6.1", features = ["derive"] }
 dotenvy = "0.15.7"
 fjall = "3.1.4"
+hotpath = "0.16.1"
 indexmap = "2.14.0"
 reqwest = { version = "0.13.3", features = ["hickory-dns"] }
 rustls = "0.23.40"
