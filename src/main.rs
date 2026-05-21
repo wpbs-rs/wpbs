@@ -147,7 +147,7 @@ async fn run() -> Result<()> {
             .initialize_plugins(
                 available_plugins,
                 channels.runtime.core_tx,
-                &cli.plugin_directory,
+                cli.plugin_directory,
             )
             .await?;
 

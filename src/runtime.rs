@@ -5,12 +5,7 @@ mod builder;
 mod internal;
 pub mod plugins;
 
-use std::{
-    collections::HashMap,
-    fs,
-    path::{Path, PathBuf},
-    sync::Arc,
-};
+use std::{collections::HashMap, fs, path::PathBuf, sync::Arc};
 
 use anyhow::{Result, bail};
 use semver::Version;
@@ -171,11 +166,21 @@ impl Runtime {
         &self,
         available_plugins: Vec<(Uuid, AvailablePlugin)>,
         core_tx: UnboundedSender<CoreMessages>,
-        plugin_directory: &Path,
+        plugin_directory: PathBuf,
     ) -> Result<()> {
         info!("Initializing the plugins");
 
+        let plugin_directory = Arc::new(plugin_directory);
+
+        let mut tasks = vec![];
+
         for (plugin_id, plugin_metadata) in available_plugins {
+            let plugins = self.plugins.clone();
+            let plugin_builder = self.plugin_builder.clone();
+            let core_tx = core_tx.clone();
+            let plugin_directory = plugin_directory.clone();
+
+            tasks.push(tokio::spawn(async move {
             let plugin_user_id = plugin_metadata.user_id.clone();
             let plugin_settings = plugin_metadata.settings.clone();
 
@@ -191,18 +196,18 @@ impl Runtime {
                         "An error occured while reading the {} plugin file: {err}",
                         plugin_user_id
                     );
-                    continue;
+                    return;
                 }
             };
 
-            let component = match Component::new(&self.plugin_builder.engine, bytes) {
+            let component = match Component::new(&plugin_builder.engine, bytes) {
                 Ok(component) => component,
                 Err(err) => {
                     error!(
                         "An error occured while creating a WASI component from the {} plugin: {err}",
                         plugin_user_id
                     );
-                    continue;
+                    return;
                 }
             };
 
@@ -211,27 +216,29 @@ impl Runtime {
             match fs::exists(&workspace_plugin_directory) {
                 Ok(exists) => {
                     if !exists && let Err(err) = fs::create_dir(&workspace_plugin_directory) {
-                        bail!(
+                        error!(
                             "Something went wrong while creating the workspace directory for the {} plugin, error: {err}",
                             plugin_user_id
                         );
+                        return;
                     }
                 }
                 Err(err) => {
-                    bail!(
+                    error!(
                         "Something went wrong while checking if the workspace directory of the {} plugin exists, error: {err}",
                         plugin_user_id
                     );
+                    return;
                 }
             }
 
-            let instance_pre = match self.plugin_builder.linker.instantiate_pre(&component) {
+            let instance_pre = match plugin_builder.linker.instantiate_pre(&component) {
                 Ok(instance_pre) => instance_pre,
                 Err(err) => {
                     error!(
                         "The {plugin_user_id} plugin returned an error while pre_instantiating (r1): {err}"
                     );
-                    continue;
+                    return;
                 }
             };
 
@@ -241,7 +248,7 @@ impl Runtime {
                     error!(
                         "The {plugin_user_id} plugin returned an error while instantiating (r2): {err}"
                     );
-                    continue;
+                    return;
                 }
             };
 
@@ -256,13 +263,13 @@ impl Runtime {
                     .into_iter()
                     .collect::<Arc<[(String, String)]>>(),
                 workspace_directory: Arc::new(workspace_plugin_directory),
-                core_tx: core_tx.clone(),
+                core_tx,
             };
 
             {
                 let (instance, mut store) = match Self::instantiate(
-                    self.plugins.clone(),
-                    self.plugin_builder.clone(),
+                    plugins.clone(),
+                    plugin_builder.clone(),
                     plugin_id,
                 )
                 .await
@@ -272,7 +279,7 @@ impl Runtime {
                         error!(
                             "The {plugin_user_id} plugin returned an error while instantiating: {err}"
                         );
-                        continue;
+                        return;
                     }
                 };
 
@@ -286,12 +293,12 @@ impl Runtime {
                             error!(
                                 "The {plugin_user_id} plugin returned an error while intializing: {err}"
                             );
-                            continue;
+                            return;
                         }
                     }
                     Err(err) => {
                         error!("The {plugin_user_id} plugin exprienced a critical error: {err}");
-                        continue;
+                        return;
                     }
                 };
             }
@@ -301,7 +308,12 @@ impl Runtime {
                 state_pre,
             };
 
-            self.plugins.write().await.insert(plugin_id, plugin_context);
+            plugins.write().await.insert(plugin_id, plugin_context);
+            }))
+        }
+
+        for task in tasks {
+            task.await.unwrap();
         }
 
         Ok(())
