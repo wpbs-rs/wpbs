@@ -90,7 +90,7 @@ impl Discord {
 
                         core_tx
                             .send(CoreMessages::DatabaseModule(DatabaseMessages::Get(
-                                Keyspaces::DiscordMessageComponents,
+                                Keyspaces::DiscordModals,
                                 modal_id.as_bytes().to_vec(),
                                 sender,
                             )))

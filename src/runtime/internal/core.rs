@@ -110,7 +110,8 @@ impl CoreImportFunctionsHost for InternalRuntime {
                     .metadata
                     .permissions
                     .core
-                    .contains(&PluginPermissionsCore::DependencyFunctions) {
+                    .contains(&PluginPermissionsCore::DependencyFunctions)
+                {
                     result.core.as_mut().unwrap().dependency_functions = Some(Ok(HashMap::new()));
 
                     for dependency_function_registration in dependency_function_registrations {
@@ -171,7 +172,8 @@ impl CoreImportFunctionsHost for InternalRuntime {
                         .permissions
                         .services
                         .job_scheduler
-                        .contains(&PluginPermissionsJobScheduler::ScheduledJobs) {
+                        .contains(&PluginPermissionsJobScheduler::ScheduledJobs)
+                    {
                         result
                             .services
                             .as_mut()
@@ -293,7 +295,8 @@ impl CoreImportFunctionsHost for InternalRuntime {
                             .services
                             .discord
                             .interactions
-                            .contains(&PluginPermissionsDiscordInteractions::ApplicationCommands) {
+                            .contains(&PluginPermissionsDiscordInteractions::ApplicationCommands)
+                        {
                             for (index, application_command_registration) in
                                 application_command_registrations.into_iter().enumerate()
                             {
@@ -350,7 +353,8 @@ impl CoreImportFunctionsHost for InternalRuntime {
                             .services
                             .discord
                             .interactions
-                            .contains(&PluginPermissionsDiscordInteractions::MessageComponents) {
+                            .contains(&PluginPermissionsDiscordInteractions::MessageComponents)
+                        {
                             result
                                 .services
                                 .as_mut()
@@ -420,7 +424,8 @@ impl CoreImportFunctionsHost for InternalRuntime {
                             .services
                             .discord
                             .interactions
-                            .contains(&PluginPermissionsDiscordInteractions::Modals) {
+                            .contains(&PluginPermissionsDiscordInteractions::Modals)
+                        {
                             result
                                 .services
                                 .as_mut()
@@ -554,7 +559,7 @@ impl CoreImportFunctionsHost for InternalRuntime {
                                 .insert(
                                     scheduled_job_deregistration,
                                     Err(format!(
-                                        "An error occured while parsing the job id string: {err}"
+                                        "An error occurred while parsing the job id string: {err}"
                                     )),
                                 );
                                 continue;

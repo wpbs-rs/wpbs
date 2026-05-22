@@ -14,7 +14,6 @@ pub struct PluginPermissionsDiscord {
 }
 
 #[derive(Debug, Deserialize, PartialEq, Serialize)]
-#[serde(untagged)]
 pub enum PluginPermissionsDiscordEvents {
     MessageCreate,
     InteractionCreate,
@@ -70,7 +69,6 @@ impl From<DiscordEventKinds> for Vec<PluginPermissionsDiscordEvents> {
 }
 
 #[derive(Deserialize, PartialEq, Serialize)]
-#[serde(untagged)]
 pub enum PluginPermissionsDiscordInteractions {
     ApplicationCommands,
     MessageComponents,

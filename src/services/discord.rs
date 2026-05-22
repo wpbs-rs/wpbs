@@ -157,8 +157,8 @@ impl Discord {
     fn shard_message_senders(
         shard_iterator: Box<dyn ExactSizeIterator<Item = Shard>>,
     ) -> (Vec<Shard>, Vec<MessageSender>) {
-        let mut shards = vec![];
-        let mut shard_message_senders = vec![];
+        let mut shards = Vec::new();
+        let mut shard_message_senders = Vec::new();
 
         for shard in shard_iterator {
             shard_message_senders.push(shard.sender());

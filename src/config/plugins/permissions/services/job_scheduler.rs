@@ -4,7 +4,6 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Deserialize, PartialEq, Serialize)]
-#[serde(untagged)]
 pub enum PluginPermissionsJobScheduler {
     ScheduledJobs,
 }

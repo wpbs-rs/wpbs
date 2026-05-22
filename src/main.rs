@@ -48,7 +48,6 @@ use crate::{
     },
 };
 
-#[derive()]
 struct Tasks {
     runtime: Option<JoinHandle<()>>,
     services: TasksServices,
@@ -201,11 +200,7 @@ fn start(
         while let Some(core_message) = rx.recv().await {
             match core_message {
                 CoreMessages::DatabaseModule(database_message) => {
-                    let database = database.clone();
-
-                    tokio::spawn(async move {
-                        database::handle_action(&database, database_message);
-                    });
+                    database::handle_action(&database, database_message).await;
                 }
                 CoreMessages::JobScheduler(job_scheduler_message) => {
                     job_scheduler_tx.send(job_scheduler_message).unwrap();
@@ -306,7 +301,7 @@ fn restart() {
     let executable_path = match env::current_exe() {
         Ok(executable_path) => executable_path,
         Err(err) => {
-            error!("An error occured while trying to get the path of this program: {err}");
+            error!("An error occurred while trying to get the path of this program: {err}");
             return;
         }
     };
@@ -320,12 +315,12 @@ fn restart() {
     #[cfg(target_family = "unix")]
     {
         let err = Command::new(executable_path).args(args).exec();
-        error!("An error occured while trying to start a new instance of the program: {err}");
+        error!("An error occurred while trying to start a new instance of the program: {err}");
     }
 
     // HACK: Windows does not support `exec`. Instead we spawn a child porcess and wait for it to finish.
     #[cfg(target_family = "windows")]
     if let Err(err) = Command::new(executable_path).args(args).status() {
-        error!("An error occured while trying to start a new instance of the program: {err}");
+        error!("An error occurred while trying to start a new instance of the program: {err}");
     }
 }

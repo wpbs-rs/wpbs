@@ -7,10 +7,10 @@ use std::{
     path::Path,
 };
 
+use crate::utils::channels::DatabaseMessages;
 use anyhow::{Result, bail};
 use fjall::{Database, Guard, Iter, KeyspaceCreateOptions, PersistMode, Slice};
-
-use crate::utils::channels::DatabaseMessages;
+use tokio::task::spawn_blocking;
 
 pub enum Keyspaces {
     PluginStore, // K: String (Uuid:String); V: Vec<u8>
@@ -33,66 +33,65 @@ pub fn new(database_directory_path: &Path) -> Result<Database> {
     Ok(Database::builder(database_directory_path).open()?)
 }
 
-pub fn handle_action(database: &Database, message: DatabaseMessages) {
+pub async fn handle_action(database: &Database, message: DatabaseMessages) {
     match message {
         DatabaseMessages::Get(keyspace, key, response_sender) => {
-            response_sender.send(get(database, &keyspace, key)).unwrap();
+            response_sender
+                .send(get(database, &keyspace, key).await)
+                .unwrap();
         }
         DatabaseMessages::Range(keyspace, range_start, range_end, inclusive, response_sender) => {
-            let _ = response_sender.send(range(
-                database,
-                &keyspace,
-                range_start,
-                range_end,
-                inclusive,
-            ));
+            let _ = response_sender
+                .send(range(database, &keyspace, range_start, range_end, inclusive).await);
         }
         DatabaseMessages::Prefix(keyspace, prefix_value, response_sender) => {
-            let _ = response_sender.send(prefix(database, &keyspace, prefix_value));
+            let _ = response_sender.send(prefix(database, &keyspace, prefix_value).await);
         }
         DatabaseMessages::GetAllEntries(keyspace, response_sender) => {
             response_sender
-                .send(get_all_entries(database, &keyspace))
+                .send(get_all_entries(database, &keyspace).await)
                 .unwrap();
         }
         DatabaseMessages::GetAllKeys(keyspace, response_sender) => {
             response_sender
-                .send(get_all_keys(database, &keyspace))
+                .send(get_all_keys(database, &keyspace).await)
                 .unwrap();
         }
         DatabaseMessages::GetAllValues(keyspace, response_sender) => {
             response_sender
-                .send(get_all_values(database, &keyspace))
+                .send(get_all_values(database, &keyspace).await)
                 .unwrap();
         }
         DatabaseMessages::Insert(keyspace, key, value, response_sender) => {
             response_sender
-                .send(insert(database, &keyspace, key, value))
+                .send(insert(database, &keyspace, key, value).await)
                 .unwrap();
         }
         DatabaseMessages::Remove(keyspace, key, response_sender) => {
             response_sender
-                .send(remove(database, &keyspace, key))
+                .send(remove(database, &keyspace, key).await)
                 .unwrap();
         }
         DatabaseMessages::ContainsKey(keyspace, key, response_sender) => {
             response_sender
-                .send(contains_key(database, &keyspace, key))
+                .send(contains_key(database, &keyspace, key).await)
                 .unwrap();
         }
         DatabaseMessages::Clear(keyspace, response_sender) => {
-            response_sender.send(clear(database, &keyspace)).unwrap();
+            response_sender
+                .send(clear(database, &keyspace).await)
+                .unwrap();
         }
     }
 }
 
-pub fn get(database: &Database, keyspace: &Keyspaces, key: Vec<u8>) -> Result<Option<Slice>> {
+pub async fn get(database: &Database, keyspace: &Keyspaces, key: Vec<u8>) -> Result<Option<Slice>> {
     let keyspace = database.keyspace(get_keyspace(keyspace), KeyspaceCreateOptions::default)?;
 
-    Ok(keyspace.get(key)?)
+    Ok(spawn_blocking(move || keyspace.get(key)).await.unwrap()?)
 }
 
-pub fn range(
+pub async fn range(
     database: &Database,
     keyspace: &Keyspaces,
     range_start: Vec<u8>,
@@ -105,34 +104,46 @@ pub fn range(
         return Ok(keyspace.range(range_start..=range_end));
     }
 
-    Ok(keyspace.range(range_start..range_end))
+    Ok(
+        spawn_blocking(move || keyspace.range(range_start..range_end))
+            .await
+            .unwrap(),
+    )
 }
 
-pub fn prefix(database: &Database, keyspace: &Keyspaces, prefix: Vec<u8>) -> Result<Iter> {
+pub async fn prefix(database: &Database, keyspace: &Keyspaces, prefix: Vec<u8>) -> Result<Iter> {
     let keyspace = database.keyspace(get_keyspace(keyspace), KeyspaceCreateOptions::default)?;
 
-    Ok(keyspace.prefix(prefix))
+    Ok(spawn_blocking(move || keyspace.prefix(prefix))
+        .await
+        .unwrap())
 }
 
-pub fn get_all_entries(database: &Database, keyspace: &Keyspaces) -> Result<Vec<(Slice, Slice)>> {
-    Ok(prefix(database, keyspace, Vec::new())?
+pub async fn get_all_entries(
+    database: &Database,
+    keyspace: &Keyspaces,
+) -> Result<Vec<(Slice, Slice)>> {
+    Ok(prefix(database, keyspace, Vec::new())
+        .await?
         .map(Guard::into_inner)
         .collect::<Result<Vec<(Slice, Slice)>, fjall::Error>>()?)
 }
 
-pub fn get_all_keys(database: &Database, keyspace: &Keyspaces) -> Result<Vec<Slice>> {
-    Ok(prefix(database, keyspace, Vec::new())?
+pub async fn get_all_keys(database: &Database, keyspace: &Keyspaces) -> Result<Vec<Slice>> {
+    Ok(prefix(database, keyspace, Vec::new())
+        .await?
         .map(Guard::key)
         .collect::<std::result::Result<Vec<Slice>, fjall::Error>>()?)
 }
 
-pub fn get_all_values(database: &Database, keyspace: &Keyspaces) -> Result<Vec<Slice>> {
-    Ok(range(database, keyspace, Vec::new(), Vec::new(), true)?
+pub async fn get_all_values(database: &Database, keyspace: &Keyspaces) -> Result<Vec<Slice>> {
+    Ok(prefix(database, keyspace, Vec::new())
+        .await?
         .map(Guard::value)
         .collect::<std::result::Result<Vec<Slice>, fjall::Error>>()?)
 }
 
-pub fn insert(
+pub async fn insert(
     database: &Database,
     keyspace: &Keyspaces,
     key: Vec<u8>,
@@ -140,25 +151,31 @@ pub fn insert(
 ) -> Result<()> {
     let keyspace = database.keyspace(get_keyspace(keyspace), KeyspaceCreateOptions::default)?;
 
-    Ok(keyspace.insert(key, value)?)
+    Ok(spawn_blocking(move || keyspace.insert(key, value))
+        .await
+        .unwrap()?)
 }
 
-pub fn remove(database: &Database, keyspace: &Keyspaces, key: Vec<u8>) -> Result<()> {
+pub async fn remove(database: &Database, keyspace: &Keyspaces, key: Vec<u8>) -> Result<()> {
     let keyspace = database.keyspace(get_keyspace(keyspace), KeyspaceCreateOptions::default)?;
 
-    Ok(keyspace.remove(key)?)
+    Ok(spawn_blocking(move || keyspace.remove(key))
+        .await
+        .unwrap()?)
 }
 
-pub fn contains_key(database: &Database, keyspace: &Keyspaces, key: Vec<u8>) -> Result<bool> {
+pub async fn contains_key(database: &Database, keyspace: &Keyspaces, key: Vec<u8>) -> Result<bool> {
     let keyspace = database.keyspace(get_keyspace(keyspace), KeyspaceCreateOptions::default)?;
 
-    Ok(keyspace.contains_key(key)?)
+    Ok(spawn_blocking(move || keyspace.contains_key(key))
+        .await
+        .unwrap()?)
 }
 
-pub fn clear(database: &Database, keyspace: &Keyspaces) -> Result<()> {
+pub async fn clear(database: &Database, keyspace: &Keyspaces) -> Result<()> {
     let keyspace = database.keyspace(get_keyspace(keyspace), KeyspaceCreateOptions::default)?;
 
-    Ok(keyspace.clear()?)
+    Ok(spawn_blocking(move || keyspace.clear()).await.unwrap()?)
 }
 
 pub fn persist(database: &Database, persist_mode: PersistMode) -> Result<()> {
@@ -172,7 +189,7 @@ fn get_keyspace(keyspace: &Keyspaces) -> &'static str {
 
         Keyspaces::DiscordEvents => "discord_events",
         Keyspaces::DiscordApplicationCommands => "discord_application_commands",
-        Keyspaces::DiscordMessageComponents => "discord_message_componets",
+        Keyspaces::DiscordMessageComponents => "discord_message_components",
         Keyspaces::DiscordModals => "discord_modals",
     }
 }

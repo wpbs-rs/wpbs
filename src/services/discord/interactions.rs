@@ -64,14 +64,14 @@ impl Discord {
 
         for (key, value) in entries {
             let key_string = String::from_utf8(key.to_vec()).unwrap();
-            let (plugin_id_str, name) = key_string.split_at(36);
+            let (plugin_id_str, _) = key_string.split_once(':').unwrap();
 
             let plugin_id = Uuid::from_str(plugin_id_str).unwrap();
 
             match sonic_rs::from_slice::<Command>(&value) {
                 Ok(command_data) => commands
-                    .entry(name.to_string())
-                    .or_insert(vec![])
+                    .entry(command_data.name.clone())
+                    .or_insert(Vec::new())
                     .push((plugin_id, command_data)),
                 Err(err) => {
                     error!(
@@ -225,7 +225,8 @@ impl Discord {
                     &mut discord_commands,
                     &command.1,
                 )
-                .await {
+                .await
+                {
                     let (result_sender, result_receiver) = channel();
 
                     core_tx
@@ -254,7 +255,7 @@ impl Discord {
                 for (index, mut command) in commands_by_name.1.into_iter().enumerate() {
                     command.1.name += format!("~{}", index + 1).as_str();
 
-                    let plugin_results = results.entry(command.0).or_insert(HashMap::new());
+                    let plugin_results = results.entry(command.0).or_default();
 
                     if let Ok(command_id) = Self::register_application_command(
                         http_client.clone(),
@@ -262,7 +263,8 @@ impl Discord {
                         &mut discord_commands,
                         &command.1,
                     )
-                    .await {
+                    .await
+                    {
                         let (result_sender, result_receiver) = channel();
 
                         core_tx

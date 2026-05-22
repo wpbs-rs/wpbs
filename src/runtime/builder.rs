@@ -17,6 +17,10 @@ use crate::runtime::{
     plugins::Plugin,
 };
 
+static EPOCH_DEADLINE: u64 = 6;
+static EPOCH_DEADLINE_ASYNC_YIELD_AND_UPDATE: u64 = 2;
+static INCREMENT_EPOCH_INTERVAL_SECS: u64 = 5;
+
 pub struct PluginBuilder {
     pub engine: Engine,
     pub linker: Linker<InternalRuntime>,
@@ -84,8 +88,8 @@ impl PluginBuilder {
             },
         );
 
-        store.set_epoch_deadline(6);
-        store.epoch_deadline_async_yield_and_update(2);
+        store.set_epoch_deadline(EPOCH_DEADLINE);
+        store.epoch_deadline_async_yield_and_update(EPOCH_DEADLINE_ASYNC_YIELD_AND_UPDATE);
 
         store
     }
@@ -97,7 +101,7 @@ impl PluginBuilder {
                     engine.increment_epoch();
                 }
 
-                tokio::time::sleep(Duration::from_secs(5)).await;
+                tokio::time::sleep(Duration::from_secs(INCREMENT_EPOCH_INTERVAL_SECS)).await;
             }
         });
     }

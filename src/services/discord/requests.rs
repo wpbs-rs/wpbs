@@ -33,7 +33,7 @@ impl Discord {
             // Shard message sender commands
             DiscordRequests::RequestGuildMembers((guild_id, body)) => {
                 let guild_shard_message_sender =
-                    Self::get_guild_shard_id(&shard_message_senders, guild_id);
+                    Self::get_guild_shard_message_sender(&shard_message_senders, guild_id);
 
                 let d = match sonic_rs::from_str::<RequestGuildMembersInfo>(&body) {
                     Ok(d) => d,
@@ -62,7 +62,7 @@ impl Discord {
             }
             DiscordRequests::UpdateVoiceState((guild_id, body)) => {
                 let guild_shard_message_sender =
-                    Self::get_guild_shard_id(&shard_message_senders, guild_id);
+                    Self::get_guild_shard_message_sender(&shard_message_senders, guild_id);
 
                 let d = match sonic_rs::from_str::<UpdateVoiceStateInfo>(&body) {
                     Ok(d) => d,
@@ -438,7 +438,7 @@ impl Discord {
         }
     }
 
-    fn get_guild_shard_id(
+    fn get_guild_shard_message_sender(
         shard_message_senders: &Arc<Vec<MessageSender>>,
         guild_id: u64,
     ) -> &MessageSender {

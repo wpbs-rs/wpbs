@@ -43,9 +43,9 @@ twilight-http = { git = "https://github.com/celarye/twilight/", branch = "feat/f
 twilight-model = { git = "https://github.com/celarye/twilight/", branch = "feat/form-buffer" }
 url = "2.5.8"
 uuid = "1.23.1"
-wasmtime = "44.0.1"
-wasmtime-wasi = "44.0.1"
-wasmtime-wasi-http = "44.0.1"
+wasmtime = "45.0.0"
+wasmtime-wasi = "45.0.0"
+wasmtime-wasi-http = "45.0.0"
 
 [profile.release]
 lto = true

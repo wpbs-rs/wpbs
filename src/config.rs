@@ -1,10 +1,9 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 /* Copyright © 2026 Eduard Smet */
 
-use std::{fs, path::Path};
+use std::{collections::HashMap, fs, path::Path};
 
 use anyhow::{Result, bail};
-use indexmap::IndexMap;
 use serde::Deserialize;
 use tracing::info;
 
@@ -19,7 +18,7 @@ pub struct Config {
     pub name: String,
     #[serde(default)]
     pub services: ConfigServices,
-    pub plugins: IndexMap<String, ConfigPlugin>,
+    pub plugins: HashMap<String, ConfigPlugin>,
 }
 
 impl Config {

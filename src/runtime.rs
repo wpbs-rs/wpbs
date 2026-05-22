@@ -177,7 +177,7 @@ impl Runtime {
 
         let plugin_directory = Arc::new(plugin_directory);
 
-        let mut tasks = vec![];
+        let mut tasks = Vec::new();
 
         for (plugin_id, plugin_metadata) in available_plugins {
             let plugins = self.plugins.clone();
@@ -198,7 +198,7 @@ impl Runtime {
                 Ok(bytes) => bytes,
                 Err(err) => {
                     error!(
-                        "An error occured while reading the {} plugin file: {err}",
+                        "An error occurred while reading the {} plugin file: {err}",
                         plugin_user_id
                     );
                     return;
@@ -209,7 +209,7 @@ impl Runtime {
                 Ok(component) => component,
                 Err(err) => {
                     error!(
-                        "An error occured while creating a WASI component from the {} plugin: {err}",
+                        "An error occurred while creating a WASI component from the {} plugin: {err}",
                         plugin_user_id
                     );
                     return;
@@ -272,17 +272,14 @@ impl Runtime {
             };
 
             {
-                let (instance, mut store) = match Self::instantiate(
-                    plugins.clone(),
-                    plugin_builder.clone(),
-                    plugin_id,
-                )
-                .await
-                {
-                    Ok((instance, store)) => (instance, store),
+                let mut store = plugin_builder.store_builder(plugin_id, &state_pre);
+
+                let (instance, mut store) = match plugin_pre.instantiate_async(&mut store).await {
+                    Ok(instance) => (instance, store),
                     Err(err) => {
                         error!(
-                            "The {plugin_user_id} plugin returned an error while instantiating: {err}"
+                            "Failed to instantiate the {} plugin, error: {err}",
+                            state_pre.user_id
                         );
                         return;
                     }
@@ -296,13 +293,13 @@ impl Runtime {
                     Ok(init_result) => {
                         if let Err(err) = init_result {
                             error!(
-                                "The {plugin_user_id} plugin returned an error while intializing: {err}"
+                                "The {plugin_user_id} plugin returned an error while initializing: {err}"
                             );
                             return;
                         }
                     }
                     Err(err) => {
-                        error!("The {plugin_user_id} plugin exprienced a critical error: {err}");
+                        error!("The {plugin_user_id} plugin experienced a critical error: {err}");
                         return;
                     }
                 }
@@ -329,19 +326,20 @@ impl Runtime {
         plugin_builder: Arc<PluginBuilder>,
         plugin_id: Uuid,
     ) -> Result<(Plugin, Store<InternalRuntime>)> {
-        let plugins = plugins.read().await;
-        let plugin = plugins.get(&plugin_id).unwrap();
+        if let Some(plugin) = plugins.read().await.get(&plugin_id) {
+            let mut store = plugin_builder.store_builder(plugin_id, &plugin.state_pre);
 
-        let mut store = plugin_builder.store_builder(plugin_id, &plugin.state_pre);
-
-        match plugin.plugin_pre.instantiate_async(&mut store).await {
-            Ok(instance) => Ok((instance, store)),
-            Err(err) => {
-                bail!(
-                    "Failed to instantiate the {} plugin, error: {err}",
-                    plugin.state_pre.user_id
-                );
+            match plugin.plugin_pre.instantiate_async(&mut store).await {
+                Ok(instance) => Ok((instance, store)),
+                Err(err) => {
+                    bail!(
+                        "Failed to instantiate the {} plugin, error: {err}",
+                        plugin.state_pre.user_id
+                    );
+                }
             }
+        } else {
+            bail!("Runtime has no plugin with the provided ID: {plugin_id}");
         }
     }
 
@@ -372,7 +370,7 @@ impl Runtime {
                 response_sender.send(result).unwrap();
             }
             Err(err) => {
-                let err = format!("The {plugin_id} plugin exprienced a critical error: {err}");
+                let err = format!("The {plugin_id} plugin experienced a critical error: {err}");
 
                 error!(err);
 
@@ -406,7 +404,7 @@ impl Runtime {
                 }
             }
             Err(err) => {
-                error!("The {plugin_id} plugin exprienced a critical error: {err}");
+                error!("The {plugin_id} plugin experienced a critical error: {err}");
             }
         }
     }
@@ -430,7 +428,7 @@ impl Runtime {
             .call_discord_application_commands(store, &results)
             .await
         {
-            error!("The {plugin_id} plugin exprienced a critical error: {err}");
+            error!("The {plugin_id} plugin experienced a critical error: {err}");
         }
     }
 
@@ -459,7 +457,7 @@ impl Runtime {
                 }
             }
             Err(err) => {
-                error!("The {plugin_id} plugin exprienced a critical error: {err}");
+                error!("The {plugin_id} plugin experienced a critical error: {err}");
             }
         }
     }
@@ -497,7 +495,7 @@ impl Runtime {
                     }
                 }
                 Err(err) => {
-                    error!("The {plugin_id} plugin exprienced a critical error: {err}");
+                    error!("The {plugin_id} plugin experienced a critical error: {err}");
                 }
             }
         }

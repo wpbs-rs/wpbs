@@ -11,7 +11,6 @@ use std::{
 };
 
 use anyhow::{Result, bail};
-use indexmap::IndexMap;
 use semver::{Version, VersionReq};
 use serde::Deserialize;
 use tokio::{fs, task::JoinHandle};
@@ -46,7 +45,7 @@ static PROGRAM_VERSION: LazyLock<Version> =
 
 pub async fn registry_get_plugins(
     http_client_timeout_seconds: u64,
-    config: IndexMap<String, ConfigPlugin>,
+    config: HashMap<String, ConfigPlugin>,
     plugin_directory: PathBuf,
     cache: bool,
 ) -> Result<Vec<(Uuid, AvailablePlugin)>> {
@@ -58,13 +57,13 @@ pub async fn registry_get_plugins(
 #[hotpath::measure]
 pub async fn get_plugins(
     http_client: Arc<HttpClient>,
-    config: IndexMap<String, ConfigPlugin>,
+    config: HashMap<String, ConfigPlugin>,
     base_plugin_directory_path: PathBuf,
     cache: bool,
 ) -> Result<Vec<(Uuid, AvailablePlugin)>> {
     info!("Fetching and storing the plugins");
 
-    let mut available_plugins = vec![];
+    let mut available_plugins = Vec::new();
 
     let registries = get_cached_plugins(
         &base_plugin_directory_path,
@@ -91,7 +90,7 @@ pub async fn get_plugins(
 
 async fn get_cached_plugins(
     base_plugin_directory_path: &Path,
-    config: IndexMap<String, ConfigPlugin>,
+    config: HashMap<String, ConfigPlugin>,
     cache: bool,
     available_plugins: &mut Vec<(Uuid, AvailablePlugin)>,
 ) -> HashMap<String, Vec<(String, ConfigPlugin)>> {
@@ -137,7 +136,7 @@ async fn get_cached_plugins(
 
         registries
             .entry(registry_id.to_string())
-            .or_insert(vec![])
+            .or_insert(Vec::new())
             .push((plugin_uid, plugin_options));
     }
 
@@ -150,7 +149,7 @@ async fn fetch_non_cached_plugins(
     registries: HashMap<String, Vec<(String, ConfigPlugin)>>,
     available_plugins: &mut Vec<(Uuid, AvailablePlugin)>,
 ) {
-    let mut registry_tasks: RegistryTask = vec![];
+    let mut registry_tasks: RegistryTask = Vec::new();
 
     for (registry_id, plugins) in registries {
         let http_client = http_client.clone();
@@ -158,11 +157,11 @@ async fn fetch_non_cached_plugins(
         let registry_id = Arc::new(registry_id);
 
         registry_tasks.push(tokio::spawn(async move {
-            let mut available_registry_plugins = vec![];
+            let mut available_registry_plugins = Vec::new();
 
             let registry = Arc::new(fetch_registry(http_client.clone(), &registry_id, &registry_directory_path).await?);
 
-            let mut plugin_tasks = vec![];
+            let mut plugin_tasks = Vec::new();
 
             for (plugin_uid, plugin_options) in plugins {
                 let http_client = http_client.clone();
