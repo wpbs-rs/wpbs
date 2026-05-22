@@ -2,11 +2,19 @@
 /* Copyright © 2026 Eduard Smet */
 
 interface core-types {
-    type json = list<u8>;
+    type json = string;
+
+    type host-error = string;
+
+    type plugin-error = string;
 }
 
 interface core-import-types {
-    type error = string;
+    use core-types.{host-error};
+
+    // Services
+    use job-scheduler-import-types.{job-scheduler-registrations, job-scheduler-registrations-result, job-scheduler-deregistrations, job-scheduler-deregistrations-result};
+    use discord-import-types.{discord-registrations, discord-registrations-result, discord-deregistrations, discord-deregistrations-result};
 
     enum log-levels {
         trace,
@@ -16,56 +24,89 @@ interface core-import-types {
         error,
     }
 
-    flags supported-core-registrations {
-        dependency-functions,
-        shutdown,
+    record registrations {
+        core: option<core-registrations>,
+        services: option<services-registrations>,
     }
 
-    /// All registrations are opt in.
     record core-registrations {
-        dependency-functions: list<string>,
+        dependency-functions: option<list<string>>,
     }
 
-    /// The `dependency-functions` field returns separate lists of successful and failed IDs.
-    ///
-    /// The `shutdown` field returns a result to indicate if the shutdown registration was accepted or not.
+    record services-registrations {
+        job-scheduler: option<job-scheduler-registrations>,
+        discord: option<discord-registrations>,
+    }
+
+    record registrations-result {
+        core: option<core-registrations-result>,
+        services: option<services-registrations-result>,
+    }
+
     record core-registrations-result {
-        dependency-functions: result<list<tuple<string, string>>, error>,
+        dependency-functions: option<result<map<string, string>, host-error>>,
     }
-}
 
-interface core-export-types {
-    type error = string;
+    record services-registrations-result {
+        job-scheduler: option<job-scheduler-registrations-result>,
+        discord: option<discord-registrations-result>
+    }
+
+    record deregistrations {
+        core: option<core-deregistrations>,
+        services: option<services-deregistrations>,
+    }
+
+    record core-deregistrations {
+        dependency-functions: option<list<string>>
+    }
+
+    record services-deregistrations {
+        job-scheduler: option<job-scheduler-deregistrations>,
+        discord: option<discord-deregistrations>,
+    }
+
+    record deregistrations-result {
+        core: option<core-deregistrations-result>,
+        services: option<services-deregistrations-result>,
+    }
+
+    record core-deregistrations-result {
+        dependency-functions: option<list<string>>
+    }
+
+    record services-deregistrations-result {
+        job-scheduler: option<job-scheduler-deregistrations-result>,
+        discord: option<discord-deregistrations-result>,
+    }
 }
 
 interface core-import-functions {
-    use core-import-types.{error, log-levels, core-registrations, core-registrations-result, supported-core-registrations};
+    use core-types.{host-error};
+    use core-import-types.{deregistrations, deregistrations-result, log-levels, registrations, registrations-result};
+
+
+    register: func(registrations: registrations) -> registrations-result;
+    deregister: func(deregistrations: deregistrations) -> deregistrations-result;
 
     log: func(level: log-levels, message: string);
 
-    get-state: func(key: string) -> option<list<u8>>;
-    set-state: func(key: string, value: list<u8>) -> result<_, error>;
+    get-state: func(key: string) -> result<option<list<u8>>, host-error>;
+    set-state: func(key: string, value: list<u8>) -> result<_, host-error>;
 
-    get-supported-registrations: func() -> supported-core-registrations;
-    register: func(registrations: core-registrations) -> core-registrations-result;
+    dependency-function: func(registry-id: string, plugin-id: string, function-id: string, params: list<u8>) -> result<list<u8>, host-error>;
 
     unload: func(reason: string);
-
-    shutdown: func(restart: bool) -> result<_, error>;
-
-    /// The `params` parameter and result ok value are bytes. The serialized format has to be decided between plugins.
-    dependency-function: func(registry-id: string, plugin-id: string, function-id: string, params: list<u8>) -> result<list<u8>, error>;
+    shutdown: func(restart: bool) -> result<_, host-error>;
 }
 
 interface core-export-functions {
-    use core-export-types.{error};
-    use core-types.{json};
+    use core-types.{json, plugin-error};
 
-    initialization: func(settings: json) -> result<_, error>;
+    initialization: func(settings: json) -> result<_, plugin-error>;
 
-    shutdown: func() -> result<_, error>;
+    dependency-function: func(function-id: string, params: list<u8>) -> result<list<u8>, plugin-error>;
 
-    /// The `params` parameter and result ok value are bytes. The serialized format has to be decided between plugins.
-    dependency-function: func(function-id: string, params: list<u8>) -> result<list<u8>, error>;
+    shutdown: func() -> result<_, plugin-error>;
 }
 

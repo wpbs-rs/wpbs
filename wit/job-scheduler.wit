@@ -2,52 +2,27 @@
 /* Copyright © 2026 Eduard Smet */
 
 interface job-scheduler-import-types {
-    use core-import-types.{error};
+    use core-types.{host-error};
 
-    flags supported-job-scheduler-registrations {
-        scheduled-jobs,
-    }
-
-    /// All registrations are opt in.
-    ///
-    /// The `scheduled-jobs` field list entries should exist out of cron values.
-    ///
-    /// cron: https://en.wikipedia.org/wiki/Cron
     record job-scheduler-registrations {
-        scheduled-jobs: list<string>,
+        scheduled-jobs: option<list<string>>,
     }
 
-    /// TODO: Rewrite docs
-    /// The `scheduled-jobs` field returns separate lists of successful and failed cron values.
     record job-scheduler-registrations-result {
-        scheduled-jobs: result<list<tuple<string, result<string, error>>>, error>,
+        scheduled-jobs: option<result<map<string, result<string, host-error>>, host-error>>,
     }
 
     record job-scheduler-deregistrations {
-        scheduled-jobs: list<string>,
+        scheduled-jobs: option<list<string>>,
     }
 
     record job-scheduler-deregistrations-result {
-        scheduled-jobs: list<tuple<string, result<_, error>>>,
+        scheduled-jobs: option<map<string, result<_, host-error>>>,
     }
-
-}
-
-interface job-scheduler-export-types {
-
-}
-
-interface job-scheduler-import-functions {
-    use core-import-types.{error};
-    use job-scheduler-import-types.{job-scheduler-deregistrations, job-scheduler-deregistrations-result, job-scheduler-registrations, job-scheduler-registrations-result, supported-job-scheduler-registrations};
-
-    get-supported-registrations: func() -> supported-job-scheduler-registrations;
-    register: func(registrations: job-scheduler-registrations) -> job-scheduler-registrations-result;
-    deregister: func(deregistrations: job-scheduler-deregistrations) -> job-scheduler-deregistrations-result;
 }
 
 interface job-scheduler-export-functions {
-    use core-export-types.{error};
+    use core-types.{plugin-error};
 
-    scheduled-job: func(job-id: string) -> result<_, error>;
+    scheduled-job: func(job-id: string) -> result<_, plugin-error>;
 }

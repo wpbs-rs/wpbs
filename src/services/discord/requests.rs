@@ -16,7 +16,7 @@ use twilight_model::gateway::{
 
 use crate::{
     runtime::plugins::wpbs::plugin::{
-        core_import_types::Error,
+        core_types::HostError,
         discord_import_types::{Body, DiscordRequests, DiscordResponses},
     },
     services::discord::Discord,
@@ -28,14 +28,14 @@ impl Discord {
         http_client: Arc<Client>,
         shard_message_senders: Arc<Vec<MessageSender>>,
         request: DiscordRequests,
-    ) -> Result<Option<DiscordResponses>, Error> {
+    ) -> Result<Option<DiscordResponses>, HostError> {
         let request = match request {
             // Shard message sender commands
             DiscordRequests::RequestGuildMembers((guild_id, body)) => {
                 let guild_shard_message_sender =
                     Self::get_guild_shard_id(&shard_message_senders, guild_id);
 
-                let d = match sonic_rs::from_slice::<RequestGuildMembersInfo>(&body) {
+                let d = match sonic_rs::from_str::<RequestGuildMembersInfo>(&body) {
                     Ok(d) => d,
                     Err(err) => {
                         return Err(format!(
@@ -49,20 +49,22 @@ impl Discord {
                     op: OpCode::RequestGuildMembers,
                 };
 
-                let _ = guild_shard_message_sender.command(&request_guild_members);
+                guild_shard_message_sender
+                    .command(&request_guild_members)
+                    .unwrap();
 
                 None
             }
             DiscordRequests::RequestSoundboardSounds(_guild_ids) => {
-                return Err(format!(
-                    "RequestSoundboardSounds has not yet been implemented in Twilight."
+                return Err(HostError::from(
+                    "RequestSoundboardSounds has not yet been implemented in Twilight.",
                 ));
             }
             DiscordRequests::UpdateVoiceState((guild_id, body)) => {
                 let guild_shard_message_sender =
                     Self::get_guild_shard_id(&shard_message_senders, guild_id);
 
-                let d = match sonic_rs::from_slice::<UpdateVoiceStateInfo>(&body) {
+                let d = match sonic_rs::from_str::<UpdateVoiceStateInfo>(&body) {
                     Ok(d) => d,
                     Err(err) => {
                         return Err(format!(
@@ -76,14 +78,16 @@ impl Discord {
                     op: OpCode::RequestGuildMembers,
                 };
 
-                let _ = guild_shard_message_sender.command(&update_voice_state);
+                guild_shard_message_sender
+                    .command(&update_voice_state)
+                    .unwrap();
 
                 None
             }
             DiscordRequests::UpdatePresence(body) => {
-                let guild_shard_message_sender = shard_message_senders.get(0).unwrap();
+                let guild_shard_message_sender = shard_message_senders.first().unwrap();
 
-                let d = match sonic_rs::from_slice::<UpdatePresencePayload>(&body) {
+                let d = match sonic_rs::from_str::<UpdatePresencePayload>(&body) {
                     Ok(d) => d,
                     Err(err) => {
                         return Err(format!(
@@ -97,7 +101,9 @@ impl Discord {
                     op: OpCode::RequestGuildMembers,
                 };
 
-                let _ = guild_shard_message_sender.command(&update_voice_state);
+                guild_shard_message_sender
+                    .command(&update_voice_state)
+                    .unwrap();
 
                 None
             }
@@ -120,7 +126,7 @@ impl Discord {
             }
             DiscordRequests::CreateBan((guild_id, user_id, body)) => {
                 match Request::builder(&Route::CreateBan { guild_id, user_id })
-                    .body(body)
+                    .json(&body)
                     .build()
                 {
                     Ok(request) => Some(request),
@@ -135,7 +141,7 @@ impl Discord {
                 let request_builder = Request::builder(&Route::CreateForumThread { channel_id });
 
                 let request_builder = match content {
-                    Body::Json(bytes) => request_builder.body(bytes),
+                    Body::Json(bytes) => request_builder.json(&bytes),
                     Body::Form(buffer) => match request_builder.multipart(buffer) {
                         Ok(request) => request,
                         Err(err) => {
@@ -159,7 +165,7 @@ impl Discord {
                 let request_builder = Request::builder(&Route::CreateMessage { channel_id });
 
                 let request_builder = match content {
-                    Body::Json(bytes) => request_builder.body(bytes),
+                    Body::Json(bytes) => request_builder.json(&bytes),
                     Body::Form(buffer) => match request_builder.multipart(buffer) {
                         Ok(request) => request,
                         Err(err) => {
@@ -181,7 +187,7 @@ impl Discord {
             }
             DiscordRequests::CreateThread((channel_id, body)) => {
                 match Request::builder(&Route::CreateThread { channel_id })
-                    .body(body)
+                    .json(&body)
                     .build()
                 {
                     Ok(request) => Some(request),
@@ -197,7 +203,7 @@ impl Discord {
                     channel_id,
                     message_id,
                 })
-                .body(body)
+                .json(&body)
                 .build()
                 {
                     Ok(request) => Some(request),
@@ -334,7 +340,7 @@ impl Discord {
                     interaction_token: &interaction_token,
                     with_response,
                 })
-                .body(body)
+                .json(&body)
                 .build()
                 {
                     Ok(request) => Some(request),
@@ -382,7 +388,7 @@ impl Discord {
             }
             DiscordRequests::UpdateMember((guild_id, user_id, body)) => {
                 match Request::builder(&Route::UpdateMember { guild_id, user_id })
-                    .body(body)
+                    .json(&body)
                     .build()
                 {
                     Ok(request) => Some(request),
@@ -402,7 +408,7 @@ impl Discord {
                     application_id,
                     interaction_token: &interaction_token,
                 })
-                .body(body)
+                .json(&body)
                 .build()
                 {
                     Ok(request) => Some(request),
@@ -417,9 +423,14 @@ impl Discord {
 
         if let Some(request) = request {
             match http_client.request::<Vec<u8>>(request).await {
-                Ok(response) => Ok(Some(response.bytes().await.unwrap().clone())),
+                Ok(response) => match response.text().await {
+                    Ok(response_string) => Ok(Some(response_string)),
+                    Err(err) => Err(format!(
+                        "Something went wrong while deserializing the Discord response, error: {err}"
+                    )),
+                },
                 Err(err) => Err(format!(
-                    "Something went wrong while making a Discord request, error: {err}"
+                    "Something went wrong while making the Discord request, error: {err}"
                 )),
             }
         } else {

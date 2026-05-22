@@ -29,8 +29,11 @@ use crate::{
         internal::InternalRuntime,
         plugins::{
             Plugin, PluginPre,
-            wpbs::plugin::discord_export_types::{
-                DiscordEvents, DiscordRegistrationsResultApplicationCommands, Error,
+            wpbs::plugin::{
+                core_types::PluginError,
+                discord_export_types::{
+                    DiscordEvents, DiscordRegistrationsResultApplicationCommands,
+                },
             },
         },
     },
@@ -161,6 +164,8 @@ impl Runtime {
         })
     }
 
+    // TODO: Split up in sub functions
+    #[allow(clippy::too_many_lines)]
     #[hotpath::measure]
     pub async fn initialize_plugins(
         &self,
@@ -236,7 +241,7 @@ impl Runtime {
                 Ok(instance_pre) => instance_pre,
                 Err(err) => {
                     error!(
-                        "The {plugin_user_id} plugin returned an error while pre_instantiating (r1): {err}"
+                        "The {plugin_user_id} plugin returned an error while pre-instantiating (r1): {err}"
                     );
                     return;
                 }
@@ -246,7 +251,7 @@ impl Runtime {
                 Ok(plugin_pre) => plugin_pre,
                 Err(err) => {
                     error!(
-                        "The {plugin_user_id} plugin returned an error while instantiating (r2): {err}"
+                        "The {plugin_user_id} plugin returned an error while pre-instantiating (r2): {err}"
                     );
                     return;
                 }
@@ -285,7 +290,7 @@ impl Runtime {
 
                 match instance
                     .wpbs_plugin_core_export_functions()
-                    .call_initialization(&mut store, &sonic_rs::to_vec(&plugin_settings).unwrap())
+                    .call_initialization(&mut store, &sonic_rs::to_string(&plugin_settings).unwrap())
                     .await
                 {
                     Ok(init_result) => {
@@ -300,7 +305,7 @@ impl Runtime {
                         error!("The {plugin_user_id} plugin exprienced a critical error: {err}");
                         return;
                     }
-                };
+                }
             }
 
             let plugin_context = RuntimePlugin {
@@ -309,7 +314,7 @@ impl Runtime {
             };
 
             plugins.write().await.insert(plugin_id, plugin_context);
-            }))
+            }));
         }
 
         for task in tasks {
@@ -348,7 +353,7 @@ impl Runtime {
         plugin_id: Uuid,
         function_id: String,
         params: Vec<u8>,
-        response_sender: Sender<Result<Vec<u8>, Error>>,
+        response_sender: Sender<Result<Vec<u8>, PluginError>>,
     ) {
         let (instance, store) = match Self::instantiate(plugins, plugin_builder, plugin_id).await {
             Ok((instance, store)) => (instance, store),
@@ -364,16 +369,16 @@ impl Runtime {
             .await
         {
             Ok(result) => {
-                let _ = response_sender.send(result);
+                response_sender.send(result).unwrap();
             }
             Err(err) => {
                 let err = format!("The {plugin_id} plugin exprienced a critical error: {err}");
 
                 error!(err);
 
-                let _ = response_sender.send(Err(err));
+                response_sender.send(Err(err)).unwrap();
             }
-        };
+        }
     }
 
     async fn call_scheduled_job(
@@ -420,19 +425,12 @@ impl Runtime {
             }
         };
 
-        match instance
+        if let Err(err) = instance
             .wpbs_plugin_discord_export_functions()
             .call_discord_application_commands(store, &results)
             .await
         {
-            Ok(result) => {
-                if let Err(err) = result {
-                    error!("The {plugin_id} plugin returned an error: {err}");
-                }
-            }
-            Err(err) => {
-                error!("The {plugin_id} plugin exprienced a critical error: {err}");
-            }
+            error!("The {plugin_id} plugin exprienced a critical error: {err}");
         }
     }
 

@@ -25,10 +25,12 @@ use crate::{
 };
 
 #[derive(Deserialize)]
-#[allow(unused)]
 pub struct Registry {
+    #[allow(unused)]
     pub name: String,
+    #[allow(unused)]
     pub description: String,
+    #[allow(unused)]
     pub maintainers: Vec<String>,
     pub plugins: BTreeMap<String, RegistryPlugin>,
 }

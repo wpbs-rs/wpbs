@@ -10,19 +10,20 @@ use serde_yaml_ng::Value;
 use crate::config::plugins::permissions::PluginPermissions;
 
 #[derive(Deserialize)]
-#[allow(unused)]
 pub struct RegistryPlugin {
     pub versions: Vec<RegistryPluginVersion>,
+    #[allow(unused)]
     pub description: String,
 }
 
 #[derive(Deserialize)]
-#[allow(unused)]
 pub struct RegistryPluginVersion {
     pub version: String,
+    #[allow(unused)]
     pub release_time: String,
     pub compatible_program_version: String,
     pub deprecated: Option<bool>,
+    #[allow(unused)]
     pub deprecation_reason: Option<String>,
 }
 

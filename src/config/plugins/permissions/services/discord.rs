@@ -3,9 +3,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::runtime::plugins::wpbs::plugin::discord_import_types::{
-    DiscordEvents, SupportedDiscordRegistrationsInteractions,
-};
+use crate::runtime::plugins::wpbs::plugin::discord_import_types::DiscordEventKinds;
 
 #[derive(Default, Deserialize, Serialize)]
 pub struct PluginPermissionsDiscord {
@@ -28,80 +26,42 @@ pub enum PluginPermissionsDiscordEvents {
     ThreadUpdate,
 }
 
-// The `DiscordEvents` flags is retyped several times in the plugin API.
-impl From<Vec<PluginPermissionsDiscordEvents>> for DiscordEvents {
-    fn from(plugin_permissions_discord_events: Vec<PluginPermissionsDiscordEvents>) -> Self {
-        let mut supported_discord_registrations_events = Self::empty();
-
-        for plugin_permission_discord_events in &plugin_permissions_discord_events {
-            match plugin_permission_discord_events {
-                PluginPermissionsDiscordEvents::MessageCreate => {
-                    supported_discord_registrations_events |= Self::MESSAGE_CREATE;
-                }
-                PluginPermissionsDiscordEvents::InteractionCreate => {
-                    supported_discord_registrations_events |= Self::INTERACTION_CREATE;
-                }
-                PluginPermissionsDiscordEvents::ThreadCreate => {
-                    supported_discord_registrations_events |= Self::THREAD_CREATE;
-                }
-                PluginPermissionsDiscordEvents::ThreadDelete => {
-                    supported_discord_registrations_events |= Self::THREAD_DELETE;
-                }
-                PluginPermissionsDiscordEvents::ThreadListSync => {
-                    supported_discord_registrations_events |= Self::THREAD_LIST_SYNC;
-                }
-                PluginPermissionsDiscordEvents::ThreadMemberUpdate => {
-                    supported_discord_registrations_events |= Self::THREAD_MEMBER_UPDATE;
-                }
-                PluginPermissionsDiscordEvents::ThreadMembersUpdate => {
-                    supported_discord_registrations_events |= Self::THREAD_MEMBERS_UPDATE;
-                }
-                PluginPermissionsDiscordEvents::ThreadUpdate => {
-                    supported_discord_registrations_events |= Self::THREAD_UPDATE;
-                }
-            }
-        }
-
-        supported_discord_registrations_events
-    }
-}
-
-impl From<DiscordEvents> for Vec<PluginPermissionsDiscordEvents> {
-    fn from(requested_discord_registrations: DiscordEvents) -> Self {
+impl From<DiscordEventKinds> for Vec<PluginPermissionsDiscordEvents> {
+    fn from(requested_discord_registrations: DiscordEventKinds) -> Self {
         let mut plugin_permissions_discord_events = Vec::new();
 
-        if requested_discord_registrations.contains(DiscordEvents::MESSAGE_CREATE) {
+        if requested_discord_registrations.contains(DiscordEventKinds::MESSAGE_CREATE) {
             plugin_permissions_discord_events.push(PluginPermissionsDiscordEvents::MessageCreate);
         }
 
-        if requested_discord_registrations.contains(DiscordEvents::INTERACTION_CREATE) {
+        if requested_discord_registrations.contains(DiscordEventKinds::INTERACTION_CREATE) {
             plugin_permissions_discord_events
                 .push(PluginPermissionsDiscordEvents::InteractionCreate);
         }
 
-        if requested_discord_registrations.contains(DiscordEvents::THREAD_CREATE) {
+        if requested_discord_registrations.contains(DiscordEventKinds::THREAD_CREATE) {
             plugin_permissions_discord_events.push(PluginPermissionsDiscordEvents::ThreadCreate);
         }
 
-        if requested_discord_registrations.contains(DiscordEvents::THREAD_DELETE) {
+        if requested_discord_registrations.contains(DiscordEventKinds::THREAD_DELETE) {
             plugin_permissions_discord_events.push(PluginPermissionsDiscordEvents::ThreadDelete);
         }
 
-        if requested_discord_registrations.contains(DiscordEvents::THREAD_LIST_SYNC) {
+        if requested_discord_registrations.contains(DiscordEventKinds::THREAD_LIST_SYNC) {
             plugin_permissions_discord_events.push(PluginPermissionsDiscordEvents::ThreadListSync);
         }
 
-        if requested_discord_registrations.contains(DiscordEvents::THREAD_MEMBER_UPDATE) {
+        if requested_discord_registrations.contains(DiscordEventKinds::THREAD_MEMBER_UPDATE) {
             plugin_permissions_discord_events
                 .push(PluginPermissionsDiscordEvents::ThreadMemberUpdate);
         }
 
-        if requested_discord_registrations.contains(DiscordEvents::THREAD_MEMBERS_UPDATE) {
+        if requested_discord_registrations.contains(DiscordEventKinds::THREAD_MEMBERS_UPDATE) {
             plugin_permissions_discord_events
                 .push(PluginPermissionsDiscordEvents::ThreadMembersUpdate);
         }
 
-        if requested_discord_registrations.contains(DiscordEvents::THREAD_UPDATE) {
+        if requested_discord_registrations.contains(DiscordEventKinds::THREAD_UPDATE) {
             plugin_permissions_discord_events.push(PluginPermissionsDiscordEvents::ThreadUpdate);
         }
 
@@ -115,28 +75,4 @@ pub enum PluginPermissionsDiscordInteractions {
     ApplicationCommands,
     MessageComponents,
     Modals,
-}
-
-impl From<Vec<PluginPermissionsDiscordInteractions>> for SupportedDiscordRegistrationsInteractions {
-    fn from(
-        plugin_permissions_discord_interactions: Vec<PluginPermissionsDiscordInteractions>,
-    ) -> Self {
-        let mut supported_discord_registrations_interactions = Self::empty();
-
-        for plugin_permission_discord_interactions in &plugin_permissions_discord_interactions {
-            match plugin_permission_discord_interactions {
-                PluginPermissionsDiscordInteractions::ApplicationCommands => {
-                    supported_discord_registrations_interactions |= Self::APPLICATION_COMMANDS;
-                }
-                PluginPermissionsDiscordInteractions::MessageComponents => {
-                    supported_discord_registrations_interactions |= Self::MESSAGE_COMPONENTS;
-                }
-                PluginPermissionsDiscordInteractions::Modals => {
-                    supported_discord_registrations_interactions |= Self::MODALS;
-                }
-            }
-        }
-
-        supported_discord_registrations_interactions
-    }
 }

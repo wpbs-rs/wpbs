@@ -41,7 +41,7 @@ pub fn get_secrets(config: &ConfigServices) -> Result<Secrets> {
         secrets.discord = Some(SecretsDiscord {
             bot_token: env::var("DISCORD_BOT_TOKEN")
                 .context("Failed to load the DISCORD_BOT_TOKEN environment variable")?,
-        })
+        });
     }
 
     Ok(secrets)

@@ -1,32 +1,47 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 /* Copyright © 2026 Eduard Smet */
 
+use std::collections::HashMap;
+
 use tokio::sync::oneshot::channel;
 use tracing::{debug, error, info, trace, warn};
 use uuid::Uuid;
 
 use crate::{
     Shutdown,
-    config::plugins::permissions::{PluginPermissions, core::PluginPermissionsCore},
+    config::plugins::permissions::{
+        core::PluginPermissionsCore,
+        services::{
+            discord::{PluginPermissionsDiscordEvents, PluginPermissionsDiscordInteractions},
+            job_scheduler::PluginPermissionsJobScheduler,
+        },
+    },
     database::Keyspaces,
     runtime::{
         internal::InternalRuntime,
         plugins::wpbs::plugin::{
-            core_export_types::{Error, Host as CoreExportTypesHost},
             core_import_functions::Host as CoreImportFunctionsHost,
             core_import_types::{
-                CoreRegistrations, CoreRegistrationsResult, Host as CoreImportTypesHost, LogLevels,
-                SupportedCoreRegistrations,
+                CoreDeregistrationsResult, CoreRegistrationsResult, Deregistrations,
+                DeregistrationsResult, Host as CoreImportTypesHost, LogLevels, Registrations,
+                RegistrationsResult, ServicesDeregistrationsResult, ServicesRegistrationsResult,
             },
-            core_types::Host as CoreTypesHost,
+            core_types::{Host as CoreTypesHost, HostError},
+            discord_import_types::{
+                DiscordRegistrationsInteractionsResult, DiscordRegistrationsResult,
+            },
+            job_scheduler_import_types::{
+                JobSchedulerDeregistrationsResult, JobSchedulerRegistrationsResult,
+            },
         },
     },
-    utils::channels::{CoreMessages, DatabaseMessages, RuntimeMessages, RuntimeMessagesCore},
+    utils::channels::{
+        CoreMessages, DatabaseMessages, JobSchedulerMessages, RuntimeMessages, RuntimeMessagesCore,
+    },
 };
 
 impl CoreTypesHost for InternalRuntime {}
 impl CoreImportTypesHost for InternalRuntime {}
-impl CoreExportTypesHost for InternalRuntime {}
 
 impl CoreImportFunctionsHost for InternalRuntime {
     async fn log(&mut self, level: LogLevels, message: String) {
@@ -39,10 +54,10 @@ impl CoreImportFunctionsHost for InternalRuntime {
         }
     }
 
-    async fn get_state(&mut self, key: String) -> Option<Vec<u8>> {
+    async fn get_state(&mut self, key: String) -> Result<Option<Vec<u8>>, HostError> {
         let (sender, receiver) = channel();
 
-        let key = format!("{}-{key}", self.metadata.plugin_id);
+        let key = format!("{}:{key}", self.metadata.plugin_id);
 
         self.core_tx
             .send(CoreMessages::DatabaseModule(DatabaseMessages::Get(
@@ -52,13 +67,17 @@ impl CoreImportFunctionsHost for InternalRuntime {
             )))
             .unwrap();
 
-        receiver.await.unwrap().unwrap().map(|v| v.to_vec())
+        receiver
+            .await
+            .unwrap()
+            .map(|r| r.map(|s| s.to_vec()))
+            .map_err(|err| err.to_string())
     }
 
-    async fn set_state(&mut self, key: String, value: Vec<u8>) -> Result<(), Error> {
+    async fn set_state(&mut self, key: String, value: Vec<u8>) -> Result<(), HostError> {
         let (sender, receiver) = channel();
 
-        let key = format!("{}-{key}", self.metadata.plugin_id);
+        let key = format!("{}:{key}", self.metadata.plugin_id);
 
         self.core_tx
             .send(CoreMessages::DatabaseModule(DatabaseMessages::Insert(
@@ -72,80 +91,399 @@ impl CoreImportFunctionsHost for InternalRuntime {
         receiver.await.unwrap().map_err(|err| err.to_string())
     }
 
-    async fn get_supported_registrations(&mut self) -> SupportedCoreRegistrations {
-        let (sender, receiver) = channel();
-
-        self.core_tx
-            .send(CoreMessages::DatabaseModule(DatabaseMessages::Get(
-                Keyspaces::Plugins,
-                self.metadata.plugin_id.as_bytes().to_vec(),
-                sender,
-            )))
-            .unwrap();
-
-        let response_bytes = receiver.await.unwrap().unwrap().unwrap().to_vec();
-
-        let plugin_permissions =
-            sonic_rs::from_slice::<PluginPermissions>(&response_bytes).unwrap();
-
-        plugin_permissions.core.into()
-    }
-
-    async fn register(&mut self, registrations: CoreRegistrations) -> CoreRegistrationsResult {
-        let (sender, receiver) = channel();
-
-        self.core_tx
-            .send(CoreMessages::DatabaseModule(DatabaseMessages::Get(
-                Keyspaces::Plugins,
-                self.metadata.plugin_id.as_bytes().to_vec(),
-                sender,
-            )))
-            .unwrap();
-
-        let response_bytes = receiver.await.unwrap().unwrap().unwrap().to_vec();
-
-        let plugin_permissions =
-            sonic_rs::from_slice::<PluginPermissions>(&response_bytes).unwrap();
-
-        if !plugin_permissions
-            .core
-            .contains(&PluginPermissionsCore::DependencyFunctions)
-        {
-            return CoreRegistrationsResult {
-                dependency_functions: Err(Error::from(
-                    "Plugin is not allowed to register dependency functions",
-                )),
-            };
-        }
-
-        let mut result = CoreRegistrationsResult {
-            dependency_functions: Ok(vec![]),
+    // TODO: Split up in sub functions
+    #[allow(clippy::too_many_lines)]
+    async fn register(&mut self, registrations: Registrations) -> RegistrationsResult {
+        let mut result = RegistrationsResult {
+            core: None,
+            services: None,
         };
 
-        for dependency_function in registrations.dependency_functions {
-            let (sender, receiver) = channel();
+        if let Some(core_registrations) = registrations.core {
+            result.core = Some(CoreRegistrationsResult {
+                dependency_functions: None,
+            });
 
-            let key = format!(
-                "{}/{}/{dependency_function}",
-                self.metadata.registry_id, self.metadata.id
-            );
+            if let Some(dependency_function_registrations) = core_registrations.dependency_functions
+            {
+                if self
+                    .metadata
+                    .permissions
+                    .core
+                    .contains(&PluginPermissionsCore::DependencyFunctions) {
+                    result.core.as_mut().unwrap().dependency_functions = Some(Ok(HashMap::new()));
 
-            self.core_tx
-                .send(CoreMessages::DatabaseModule(DatabaseMessages::Insert(
-                    Keyspaces::DependencyFunctions,
-                    key.as_bytes().to_vec(),
-                    Vec::new(),
-                    sender,
-                )))
-                .unwrap();
+                    for dependency_function_registration in dependency_function_registrations {
+                        let (sender, receiver) = channel();
 
-            receiver.await.unwrap();
+                        let key = format!(
+                            "{}/{}/{dependency_function_registration}",
+                            self.metadata.registry_id, self.metadata.id
+                        );
 
-            result
-                .dependency_functions
-                .as_mut()
-                .unwrap()
-                .push((dependency_function, key))
+                        self.core_tx
+                            .send(CoreMessages::DatabaseModule(DatabaseMessages::Insert(
+                                Keyspaces::DependencyFunctions,
+                                key.as_bytes().to_vec(),
+                                self.metadata.plugin_id.as_bytes().to_vec(),
+                                sender,
+                            )))
+                            .unwrap();
+
+                        receiver.await.unwrap().unwrap();
+
+                        result
+                            .core
+                            .as_mut()
+                            .unwrap()
+                            .dependency_functions
+                            .as_mut()
+                            .unwrap()
+                            .as_mut()
+                            .unwrap()
+                            .insert(dependency_function_registration, key);
+                    }
+                } else {
+                    result.core.as_mut().unwrap().dependency_functions = Some(Err(
+                        HostError::from("Plugin is not allowed to register dependency functions"),
+                    ));
+                }
+            }
+        }
+
+        if let Some(services_registrations) = registrations.services {
+            result.services = Some(ServicesRegistrationsResult {
+                job_scheduler: None,
+                discord: None,
+            });
+
+            if let Some(job_scheduler_registrations) = services_registrations.job_scheduler {
+                result.services.as_mut().unwrap().job_scheduler =
+                    Some(JobSchedulerRegistrationsResult {
+                        scheduled_jobs: None,
+                    });
+
+                if let Some(scheduled_job_registrations) =
+                    job_scheduler_registrations.scheduled_jobs
+                {
+                    if self
+                        .metadata
+                        .permissions
+                        .services
+                        .job_scheduler
+                        .contains(&PluginPermissionsJobScheduler::ScheduledJobs) {
+                        result
+                            .services
+                            .as_mut()
+                            .unwrap()
+                            .job_scheduler
+                            .as_mut()
+                            .unwrap()
+                            .scheduled_jobs = Some(Ok(HashMap::new()));
+
+                        for scheduled_job_registration in scheduled_job_registrations {
+                            let (sender, receiver) = channel();
+
+                            self.core_tx
+                                .send(CoreMessages::JobScheduler(JobSchedulerMessages::AddJob(
+                                    self.metadata.plugin_id,
+                                    scheduled_job_registration.clone(),
+                                    sender,
+                                )))
+                                .unwrap();
+
+                            let job_scheduler_result = receiver
+                                .await
+                                .unwrap()
+                                .map(|uuid| uuid.to_string())
+                                .map_err(|err| err.to_string());
+
+                            result
+                                .services
+                                .as_mut()
+                                .unwrap()
+                                .job_scheduler
+                                .as_mut()
+                                .unwrap()
+                                .scheduled_jobs
+                                .as_mut()
+                                .unwrap()
+                                .as_mut()
+                                .unwrap()
+                                .insert(scheduled_job_registration, job_scheduler_result);
+                        }
+                    } else {
+                        result
+                            .services
+                            .as_mut()
+                            .unwrap()
+                            .job_scheduler
+                            .as_mut()
+                            .unwrap()
+                            .scheduled_jobs = Some(Err(HostError::from(
+                            "Plugin is not allowed to register scheduled jobs",
+                        )));
+                    }
+                }
+            }
+
+            if let Some(discord_registrations) = services_registrations.discord {
+                result.services.as_mut().unwrap().discord = Some(DiscordRegistrationsResult {
+                    events: None,
+                    interactions: None,
+                });
+
+                if let Some(event_registrations) = discord_registrations.events {
+                    let event_registrations: Vec<PluginPermissionsDiscordEvents> =
+                        event_registrations.into();
+
+                    for event_registration in event_registrations {
+                        if !self
+                            .metadata
+                            .permissions
+                            .services
+                            .discord
+                            .events
+                            .contains(&event_registration)
+                        {
+                            result
+                                .services
+                                .as_mut()
+                                .unwrap()
+                                .discord
+                                .as_mut()
+                                .unwrap()
+                                .events = Some(Err(format!(
+                                "Plugin is not allowed to register for the {event_registration:?} event"
+                            )));
+                            break;
+                        }
+                    }
+
+                    result
+                        .services
+                        .as_mut()
+                        .unwrap()
+                        .discord
+                        .as_mut()
+                        .unwrap()
+                        .events = Some(Ok(()));
+                }
+
+                if let Some(interaction_registrations) = discord_registrations.interactions {
+                    result
+                        .services
+                        .as_mut()
+                        .unwrap()
+                        .discord
+                        .as_mut()
+                        .unwrap()
+                        .interactions = Some(DiscordRegistrationsInteractionsResult {
+                        application_commands: None,
+                        message_components: None,
+                        modals: None,
+                    });
+
+                    if let Some(application_command_registrations) =
+                        interaction_registrations.application_commands
+                    {
+                        if self
+                            .metadata
+                            .permissions
+                            .services
+                            .discord
+                            .interactions
+                            .contains(&PluginPermissionsDiscordInteractions::ApplicationCommands) {
+                            for (index, application_command_registration) in
+                                application_command_registrations.into_iter().enumerate()
+                            {
+                                let (sender, receiver) = channel();
+
+                                self.core_tx
+                                    .send(CoreMessages::DatabaseModule(DatabaseMessages::Insert(
+                                        Keyspaces::DiscordApplicationCommands,
+                                        format!("{}:{}", self.metadata.plugin_id, index + 1)
+                                            .as_bytes()
+                                            .to_vec(),
+                                        application_command_registration.as_bytes().to_vec(),
+                                        sender,
+                                    )))
+                                    .unwrap();
+
+                                receiver.await.unwrap().unwrap();
+                            }
+
+                            result
+                                .services
+                                .as_mut()
+                                .unwrap()
+                                .discord
+                                .as_mut()
+                                .unwrap()
+                                .interactions
+                                .as_mut()
+                                .unwrap()
+                                .application_commands = Some(Ok(()));
+                        } else {
+                            result
+                                .services
+                                .as_mut()
+                                .unwrap()
+                                .discord
+                                .as_mut()
+                                .unwrap()
+                                .interactions
+                                .as_mut()
+                                .unwrap()
+                                .application_commands = Some(Err(HostError::from(
+                                "Plugin is not allowed to register application command interactions",
+                            )));
+                        }
+                    }
+
+                    if let Some(message_component_registrations) =
+                        interaction_registrations.message_components
+                    {
+                        if self
+                            .metadata
+                            .permissions
+                            .services
+                            .discord
+                            .interactions
+                            .contains(&PluginPermissionsDiscordInteractions::MessageComponents) {
+                            result
+                                .services
+                                .as_mut()
+                                .unwrap()
+                                .discord
+                                .as_mut()
+                                .unwrap()
+                                .interactions
+                                .as_mut()
+                                .unwrap()
+                                .message_components = Some(Ok(Vec::new()));
+
+                            for _ in 0..message_component_registrations {
+                                let uuid = Uuid::new_v4();
+
+                                let (sender, receiver) = channel();
+
+                                self.core_tx
+                                    .send(CoreMessages::DatabaseModule(DatabaseMessages::Insert(
+                                        Keyspaces::DiscordMessageComponents,
+                                        uuid.as_bytes().to_vec(),
+                                        self.metadata.plugin_id.as_bytes().to_vec(),
+                                        sender,
+                                    )))
+                                    .unwrap();
+
+                                receiver.await.unwrap().unwrap();
+
+                                result
+                                    .services
+                                    .as_mut()
+                                    .unwrap()
+                                    .discord
+                                    .as_mut()
+                                    .unwrap()
+                                    .interactions
+                                    .as_mut()
+                                    .unwrap()
+                                    .message_components
+                                    .as_mut()
+                                    .unwrap()
+                                    .as_mut()
+                                    .unwrap()
+                                    .push(uuid.to_string());
+                            }
+                        } else {
+                            result
+                                .services
+                                .as_mut()
+                                .unwrap()
+                                .discord
+                                .as_mut()
+                                .unwrap()
+                                .interactions
+                                .as_mut()
+                                .unwrap()
+                                .message_components = Some(Err(HostError::from(
+                                "Plugin is not allowed to register message component interactions",
+                            )));
+                        }
+                    }
+
+                    if let Some(modal_registrations) = interaction_registrations.modals {
+                        if self
+                            .metadata
+                            .permissions
+                            .services
+                            .discord
+                            .interactions
+                            .contains(&PluginPermissionsDiscordInteractions::Modals) {
+                            result
+                                .services
+                                .as_mut()
+                                .unwrap()
+                                .discord
+                                .as_mut()
+                                .unwrap()
+                                .interactions
+                                .as_mut()
+                                .unwrap()
+                                .modals = Some(Ok(Vec::new()));
+
+                            for _ in 0..modal_registrations {
+                                let uuid = Uuid::new_v4();
+
+                                let (sender, receiver) = channel();
+
+                                self.core_tx
+                                    .send(CoreMessages::DatabaseModule(DatabaseMessages::Insert(
+                                        Keyspaces::DiscordModals,
+                                        uuid.as_bytes().to_vec(),
+                                        self.metadata.plugin_id.as_bytes().to_vec(),
+                                        sender,
+                                    )))
+                                    .unwrap();
+
+                                receiver.await.unwrap().unwrap();
+
+                                result
+                                    .services
+                                    .as_mut()
+                                    .unwrap()
+                                    .discord
+                                    .as_mut()
+                                    .unwrap()
+                                    .interactions
+                                    .as_mut()
+                                    .unwrap()
+                                    .modals
+                                    .as_mut()
+                                    .unwrap()
+                                    .as_mut()
+                                    .unwrap()
+                                    .push(uuid.to_string());
+                            }
+                        } else {
+                            result
+                                .services
+                                .as_mut()
+                                .unwrap()
+                                .discord
+                                .as_mut()
+                                .unwrap()
+                                .interactions
+                                .as_mut()
+                                .unwrap()
+                                .modals = Some(Err(HostError::from(
+                                "Plugin is not allowed to register modal interactions",
+                            )));
+                        }
+                    }
+                }
+            }
         }
 
         result
@@ -161,30 +499,108 @@ impl CoreImportFunctionsHost for InternalRuntime {
         info!(
             "The {} plugin has unloaded itself, reason: {reason}",
             self.metadata.user_id
-        )
+        );
     }
 
-    async fn shutdown(&mut self, restart: bool) -> Result<(), Error> {
-        let (sender, receiver) = channel();
+    async fn deregister(&mut self, deregistrations: Deregistrations) -> DeregistrationsResult {
+        let mut result = DeregistrationsResult {
+            core: None,
+            services: None,
+        };
 
-        self.core_tx
-            .send(CoreMessages::DatabaseModule(DatabaseMessages::Get(
-                Keyspaces::Plugins,
-                self.metadata.plugin_id.as_bytes().to_vec(),
-                sender,
-            )))
-            .unwrap();
+        if let Some(core_deregistrations) = deregistrations.core {
+            result.core = Some(CoreDeregistrationsResult {
+                dependency_functions: None,
+            });
 
-        let response_bytes = receiver.await.unwrap().unwrap().unwrap().to_vec();
+            if let Some(_dependency_function_deregistrations) =
+                core_deregistrations.dependency_functions
+            {
+                // TODO: Implement
+            }
+        }
 
-        let plugin_permissions =
-            sonic_rs::from_slice::<PluginPermissions>(&response_bytes).unwrap();
+        if let Some(services_deregistrations) = deregistrations.services {
+            result.services = Some(ServicesDeregistrationsResult {
+                job_scheduler: None,
+                discord: None,
+            });
 
-        if !plugin_permissions
+            if let Some(job_scheduler_deregistrations) = services_deregistrations.job_scheduler {
+                result.services.as_mut().unwrap().job_scheduler =
+                    Some(JobSchedulerDeregistrationsResult {
+                        scheduled_jobs: None,
+                    });
+
+                if let Some(scheduled_job_deregistrations) =
+                    job_scheduler_deregistrations.scheduled_jobs
+                {
+                    for scheduled_job_deregistration in scheduled_job_deregistrations {
+                        let (sender, receiver) = channel();
+
+                        let job_id = match Uuid::parse_str(&scheduled_job_deregistration) {
+                            Ok(job_id) => job_id,
+                            Err(err) => {
+                                result
+                                .services
+                                .as_mut()
+                                .unwrap()
+                                .job_scheduler
+                                .as_mut()
+                                .unwrap()
+                                .scheduled_jobs
+                                .as_mut()
+                                .unwrap()
+                                .insert(
+                                    scheduled_job_deregistration,
+                                    Err(format!(
+                                        "An error occured while parsing the job id string: {err}"
+                                    )),
+                                );
+                                continue;
+                            }
+                        };
+
+                        self.core_tx
+                            .send(CoreMessages::JobScheduler(JobSchedulerMessages::RemoveJob(
+                                job_id, sender,
+                            )))
+                            .unwrap();
+
+                        result
+                            .services
+                            .as_mut()
+                            .unwrap()
+                            .job_scheduler
+                            .as_mut()
+                            .unwrap()
+                            .scheduled_jobs
+                            .as_mut()
+                            .unwrap()
+                            .insert(
+                                scheduled_job_deregistration,
+                                receiver.await.unwrap().map_err(|err| err.to_string()),
+                            );
+                    }
+                }
+            }
+
+            if let Some(_discord_deregistrations) = services_deregistrations.discord {
+                // TODO: Implement
+            }
+        }
+
+        result
+    }
+
+    async fn shutdown(&mut self, restart: bool) -> Result<(), HostError> {
+        if !self
+            .metadata
+            .permissions
             .core
             .contains(&PluginPermissionsCore::Shutdown)
         {
-            return Err(Error::from("Not allowed to call shutdown"));
+            return Err(HostError::from("Not allowed to call shutdown"));
         }
 
         let shutdown_type = if restart {
@@ -206,14 +622,14 @@ impl CoreImportFunctionsHost for InternalRuntime {
         plugin_id: String,
         function_id: String,
         params: Vec<u8>,
-    ) -> Result<Vec<u8>, Error> {
+    ) -> Result<Vec<u8>, HostError> {
         let (sender, receiver) = channel();
 
         let key = format!("{registry_id}/{plugin_id}/{function_id}");
 
         self.core_tx
             .send(CoreMessages::DatabaseModule(DatabaseMessages::Get(
-                Keyspaces::Plugins,
+                Keyspaces::DependencyFunctions,
                 key.as_bytes().to_vec(),
                 sender,
             )))

@@ -111,9 +111,12 @@ impl Discord {
                         let shard_message_senders = self.shard_message_senders.clone();
 
                         tokio::spawn(async {
-                            let _ = response_sender.send(
-                                Self::request(http_client, shard_message_senders, request).await,
-                            );
+                            response_sender
+                                .send(
+                                    Self::request(http_client, shard_message_senders, request)
+                                        .await,
+                                )
+                                .unwrap();
                         });
                     }
                     DiscordMessages::Shutdown => {
@@ -174,7 +177,7 @@ impl Discord {
         }
 
         for task in tasks.drain(..) {
-            let _ = task.await;
+            task.await.unwrap();
         }
     }
 }

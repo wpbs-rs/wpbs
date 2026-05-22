@@ -18,7 +18,10 @@ use clap::Parser;
 use fjall::{Database, PersistMode};
 use tokio::{
     signal,
-    sync::{RwLock, mpsc::UnboundedSender},
+    sync::{
+        RwLock,
+        mpsc::{UnboundedReceiver, UnboundedSender},
+    },
     task::JoinHandle,
 };
 use tracing::{error, info, warn};
@@ -41,8 +44,7 @@ use utils::channels::Channels;
 use crate::{
     runtime::Runtime,
     utils::channels::{
-        ChannelsCore, CoreMessages, DiscordMessages, JobSchedulerMessages, RuntimeMessages,
-        RuntimeMessagesCore,
+        CoreMessages, DiscordMessages, JobSchedulerMessages, RuntimeMessages, RuntimeMessagesCore,
     },
 };
 
@@ -100,7 +102,7 @@ async fn run() -> Result<()> {
 
     let (_guard, channels) = initialization(cli.log_parameters, &cli.env_file)?;
 
-    shutdown_signal_listener(channels.core_tx);
+    shutdown_signal_listener(channels.core.shutdown);
 
     let config = Config::new(&cli.config_file)?;
 
@@ -108,7 +110,13 @@ async fn run() -> Result<()> {
 
     let database = database::new(&cli.database_directory)?;
 
-    let core = start(database, channels.core);
+    let core = start(
+        database,
+        channels.core.runtime_tx,
+        channels.core.job_scheduler_tx,
+        channels.core.discord_tx,
+        channels.core.rx,
+    );
 
     {
         let mut tasks = TASKS.write().await;
@@ -127,6 +135,8 @@ async fn run() -> Result<()> {
                     .await?;
 
             tasks.services.job_scheduler = Some(job_scheduler.start().await?);
+        } else {
+            drop(channels.job_scheduler.rx);
         }
 
         if config.services.discord.enabled {
@@ -139,6 +149,8 @@ async fn run() -> Result<()> {
             .await?;
 
             tasks.services.discord = Some(discord.start());
+        } else {
+            drop(channels.discord.rx);
         }
 
         let runtime = Runtime::new(channels.runtime.rx);
@@ -152,6 +164,14 @@ async fn run() -> Result<()> {
             .await?;
 
         tasks.runtime = Some(runtime.start());
+
+        channels
+            .core
+            .main
+            .send(CoreMessages::Discord(
+                DiscordMessages::RegisterApplicationCommands,
+            ))
+            .unwrap();
     }
 
     core.await.unwrap()
@@ -170,29 +190,32 @@ fn initialization(
     Ok((guard, channels))
 }
 
-fn start(database: Database, mut channels_core: ChannelsCore) -> JoinHandle<Result<()>> {
+fn start(
+    database: Database,
+    runtime_tx: UnboundedSender<RuntimeMessages>,
+    job_scheduler_tx: UnboundedSender<JobSchedulerMessages>,
+    discord_tx: UnboundedSender<DiscordMessages>,
+    mut rx: UnboundedReceiver<CoreMessages>,
+) -> JoinHandle<Result<()>> {
     tokio::spawn(async move {
-        while let Some(core_message) = channels_core.rx.recv().await {
+        while let Some(core_message) = rx.recv().await {
             match core_message {
                 CoreMessages::DatabaseModule(database_message) => {
                     let database = database.clone();
 
-                    tokio::spawn(async {
-                        database::handle_action(database, database_message);
+                    tokio::spawn(async move {
+                        database::handle_action(&database, database_message);
                     });
                 }
                 CoreMessages::JobScheduler(job_scheduler_message) => {
-                    channels_core
-                        .job_scheduler_tx
-                        .send(job_scheduler_message)
-                        .unwrap();
+                    job_scheduler_tx.send(job_scheduler_message).unwrap();
                 }
                 CoreMessages::Discord(discord_message) => {
-                    channels_core.discord_tx.send(discord_message).unwrap();
+                    discord_tx.send(discord_message).unwrap();
                 }
                 CoreMessages::Runtime(runtime_message) => {
                     // May error as services can send messages to it after its channel has been closed
-                    let _ = channels_core.runtime_tx.send(runtime_message);
+                    let _ = runtime_tx.send(runtime_message);
                 }
                 CoreMessages::Shutdown(shutdown_kind) => {
                     {
@@ -208,14 +231,15 @@ fn start(database: Database, mut channels_core: ChannelsCore) -> JoinHandle<Resu
                         let _ = shutdown_guard.insert(shutdown_kind);
                     }
 
-                    shutdown(&channels_core).await;
+                    shutdown(&job_scheduler_tx, &discord_tx, &runtime_tx).await;
 
-                    channels_core.rx.close();
+                    // TODO: rewrite to not have to close the receiver
+                    rx.close();
                 }
             }
         }
 
-        database::persist(database, PersistMode::SyncAll)
+        database::persist(&database, PersistMode::SyncAll)
     })
 }
 
@@ -248,12 +272,15 @@ fn shutdown_signal_listener(core_tx: UnboundedSender<CoreMessages>) {
     });
 }
 
-async fn shutdown(channels_core: &ChannelsCore) {
+async fn shutdown(
+    job_scheduler_tx: &UnboundedSender<JobSchedulerMessages>,
+    discord_tx: &UnboundedSender<DiscordMessages>,
+    runtime_tx: &UnboundedSender<RuntimeMessages>,
+) {
     let mut tasks = TASKS.write().await;
 
     if let Some(runtime) = tasks.runtime.take() {
-        channels_core
-            .runtime_tx
+        runtime_tx
             .send(RuntimeMessages::Core(RuntimeMessagesCore::Shutdown))
             .unwrap();
 
@@ -261,17 +288,13 @@ async fn shutdown(channels_core: &ChannelsCore) {
     }
 
     if let Some(discord) = tasks.services.discord.take() {
-        channels_core
-            .discord_tx
-            .send(DiscordMessages::Shutdown)
-            .unwrap();
+        discord_tx.send(DiscordMessages::Shutdown).unwrap();
 
         discord.await.unwrap();
     }
 
     if let Some(job_scheduler) = tasks.services.job_scheduler.take() {
-        channels_core
-            .job_scheduler_tx
+        job_scheduler_tx
             .send(JobSchedulerMessages::Shutdown)
             .unwrap();
 

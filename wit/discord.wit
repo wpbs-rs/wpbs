@@ -1,12 +1,15 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 /* Copyright © 2026 Eduard Smet */
 
-interface discord-import-types {
-    use core-types.{json};
-    use core-import-types.{error};
+interface discord-types {
+    type snowflake = u64;
+}
 
-    /// All supported Discord gateway events.
-    flags discord-events {
+interface discord-import-types {
+    use core-types.{host-error, json};
+    use discord-types.{snowflake};
+
+    flags discord-event-kinds {
         message-create,
         interaction-create,
         thread-create,
@@ -17,138 +20,100 @@ interface discord-import-types {
         thread-update,
     }
 
-    /// Discord gateway events and interactions the plugin is allowed to register
-    /// for.
-    record supported-discord-registrations {
-        events: supported-discord-registrations-events,
-        interactions: supported-discord-registrations-interactions,
-    }
-
-    /// Discord gateway events the plugin is allowed to register for.
-    type supported-discord-registrations-events = discord-events;
-
-    /// Discord interactions the plugin is allowed to register for.
-    flags supported-discord-registrations-interactions {
-        application-commands,
-        message-components,
-        modals,
-    }
-
-    /// Opt-in Discord gateway event and interaction registrations.
     record discord-registrations {
         events: option<discord-registrations-events>,
         interactions: option<discord-registrations-interactions>,
     }
 
-    /// Opt-in Discord gateway event registrations.
-    type discord-registrations-events = discord-events;
+    type discord-registrations-events = discord-event-kinds;
 
-    /// Opt-in Discord interaction registrations.
-    ///
-    /// `application-commands`: Slash commands and context menus.
-    /// The structure is described in the Discord docs: https://docs.discord.com/developers/interactions/application-commands#application-command-object
-    //
-    /// `message-components`: Button/select menus. Value is the amount of UUIDs
-    /// needed by the plugin.
-    //
-    /// `modals`: Modals. Value is the amount of UUIDs needed by the plugin.
     record discord-registrations-interactions {
         application-commands: option<list<json>>,
         message-components: option<u16>,
         modals: option<u16>,
     }
 
-    /// Result of Discord gateway event and interaction registrations.
-    ///
-    /// `events`: Returns an error if the plugin tried to register for an event
-    /// it is not allowed to.
-    //
-    /// `interactions`: Returns an error if the plugin does not have permission
-    /// to register for the `interaction-create` event.
     record discord-registrations-result {
-        events: option<result<_, error>>,
-        interactions: option<discord-registrations-result-interactions>,
+        events: option<result<_, host-error>>,
+        interactions: option<discord-registrations-interactions-result>,
     }
 
-    /// UUIDs assigned to registered message components and modals.
-    ///
-    /// Each UUID can be used to recognize which component was clicked or modal
-    /// submitted.
-    record discord-registrations-result-interactions {
-      application-commands: option<result<_, error>>,
-      message-components: option<result<list<string>, error>>,
-      modals: option<result<list<string>, error>>,
+    record discord-registrations-interactions-result {
+        application-commands: option<result<_, host-error>>,
+        message-components: option<result<list<string>, host-error>>,
+        modals: option<result<list<string>, host-error>>,
     }
 
-    /// API requests to Discord.
-    ///
-    /// Variant data follows Discord HTTP and Gateway data structures.
-    /// The structures are described in the Discord docs:
-    /// - Gateway commands: <https://discord.com/developers/docs/events/gateway-events#send-events>
-    /// - HTTP operations: <https://discord.com/developers/docs/resources>
+    record discord-deregistrations {
+        events: option<discord-deregistrations-events>,
+        interactions: option<discord-deregistrations-interactions>,
+    }
+
+    type discord-deregistrations-events = discord-event-kinds;
+
+    record discord-deregistrations-interactions {
+        application-commands: option<list<string>>,
+        message-components: option<list<string>>,
+        modals: option<list<string>>,
+    }
+
+    record discord-deregistrations-result {
+        events: option<result<_, host-error>>,
+        interactions: option<discord-deregistrations-interactions-result>
+    }
+
+    record discord-deregistrations-interactions-result {
+        application-commands: option<result<list<string>, host-error>>,
+        message-components: option<result<list<string>, host-error>>,
+        modals: option<result<list<string>, host-error>>,
+    }
+
     variant discord-requests {
         // Gateway commands
-        request-guild-members(tuple<u64, json>),
-        request-soundboard-sounds(list<u64>),
-        update-voice-state(tuple<u64, json>),
+        request-guild-members(tuple<snowflake, json>),
+        request-soundboard-sounds(list<snowflake>),
+        update-voice-state(tuple<snowflake, json>),
         update-presence(json),
 
         // HTTP operations
-        add-thread-member(tuple<u64, u64>),
-        create-ban(tuple<u64, u64, json>),
-        create-forum-thread(tuple<u64, body>),
-        create-message(tuple<u64, body>),
-        create-thread(tuple<u64, json>),
-        create-thread-from-message(tuple<u64, u64, json>),
-        delete-message(tuple<u64, u64>),
-        get-active-threads(u64),
-        get-channel(u64),
-        get-joined-private-archived-threads(tuple<option<u64>, u64, option<u64>>),
-        get-private-archived-threads(tuple<option<string>, u64, option<u64>>),
-        get-public-archived-threads(tuple<option<string>, u64, option<u64>>),
-        get-thread-member(tuple<u64, u64>),
-        get-thread-members(tuple<option<u64>, u64, option<u32>, option<bool>>),
-        interaction-callback(tuple<u64, string, bool, json>),
-        join-thread(u64),
-        leave-thread(u64),
-        remove-thread-member(tuple<u64, u64>),
-        update-member(tuple<u64, u64, json>),
-        update-interaction-original(tuple<u64, string, json>),
+        add-thread-member(tuple<snowflake, snowflake>),
+        create-ban(tuple<snowflake, snowflake, json>),
+        create-forum-thread(tuple<snowflake, body>),
+        create-message(tuple<snowflake, body>),
+        create-thread(tuple<snowflake, json>),
+        create-thread-from-message(tuple<snowflake, snowflake, json>),
+        delete-message(tuple<snowflake, snowflake>),
+        get-active-threads(snowflake),
+        get-channel(snowflake),
+        get-joined-private-archived-threads(tuple<option<snowflake>, snowflake, option<snowflake>>),
+        get-private-archived-threads(tuple<option<string>, snowflake, option<snowflake>>),
+        get-public-archived-threads(tuple<option<string>, snowflake, option<snowflake>>),
+        get-thread-member(tuple<snowflake, snowflake>),
+        get-thread-members(tuple<option<snowflake>, snowflake, option<u32>, option<bool>>),
+        interaction-callback(tuple<snowflake, string, bool, json>),
+        join-thread(snowflake),
+        leave-thread(snowflake),
+        remove-thread-member(tuple<snowflake, snowflake>),
+        update-member(tuple<snowflake, snowflake, json>),
+        update-interaction-original(tuple<snowflake, string, json>),
     }
 
-    /// Request body type:
-    /// - JSON: For normal payloads
-    /// - Form: For payloads including file attachments.
     variant body {
         json(json),
         form(form),
     }
 
-    /// Raw form data for Discord requests with file attachments (e.g. embeds with
-    /// images).
     type form = list<u8>;
 
-    /// API responses from Discord.
     type discord-responses = json;
 }
 
 interface discord-export-types {
-    use core-types.{json};
-    use core-import-types.{error};
+    use core-types.{json, plugin-error};
+    use discord-types.{snowflake};
 
-    /// TODO: Rewrite docs
-    /// Result of application command registrations.
-    ///
-    /// Ok: Successful registrations, includes the Discord snowflake which
-    /// can be used to recognize the application command which got called.
-    ///
-    /// Err: Failed registrations, includes an error.
-    type discord-registrations-result-application-commands = list<tuple<string, result<u64, error>>>;
+    type discord-registrations-result-application-commands = map<string, result<snowflake, plugin-error>>;
 
-    /// Gateway events the plugin registered for and receives.
-    ///
-    /// Payload is raw JSON from Discord.
-    /// The structure is described in the Discord docs: https://discord.com/developers/docs/events/gateway-events#receive-events
     variant discord-events {
         interaction-create(json),
         message-create(json),
@@ -162,31 +127,17 @@ interface discord-export-types {
 }
 
 interface discord-import-functions {
-    use core-import-types.{error};
-    use discord-import-types.{discord-registrations, discord-registrations-result, discord-requests, discord-responses, supported-discord-registrations};
+    use core-types.{host-error};
+    use discord-import-types.{discord-requests, discord-responses};
 
-    /// Returns the Discord gateway events the plugin can register for.
-    get-supported-discord-registrations: func() -> supported-discord-registrations;
-
-    /// Registers for Discord gateway events and interactions.
-    ///
-    /// Application commands registered after initialization are ignored by Discord.
-    /// More info: https://docs.discord.com/developers/interactions/application-commands#registering-a-command
-    discord-register: func(registrations: discord-registrations) -> discord-registrations-result;
-
-    /// Makes a Discord request, this can be a gateway command or HTTP request.
-    ///
-    /// Gateway commands do not return data.
-    discord-request: func(request: discord-requests) -> result<option<discord-responses>, error>;
+    discord-request: func(request: discord-requests) -> result<option<discord-responses>, host-error>;
 }
 
 interface discord-export-functions {
-    use core-export-types.{error};
+    use core-types.{plugin-error};
     use discord-export-types.{discord-events, discord-registrations-result-application-commands};
 
-    /// Called when Discord application command registration completes.
-    discord-application-commands: func(registrations-result: discord-registrations-result-application-commands) -> result<_, error>;
+    discord-application-commands: func(registrations-result: discord-registrations-result-application-commands);
 
-    /// Called when a registered Discord gatway event occurs.
-    discord-event: func(event: discord-events) -> result<_, error>;
+    discord-event: func(event: discord-events) -> result<_, plugin-error>;
 }

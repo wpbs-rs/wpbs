@@ -30,6 +30,7 @@ pub struct InternalRuntimeMetadata {
     pub registry_id: Arc<String>,
     pub id: Arc<String>,
     pub user_id: Arc<String>,
+    #[allow(unused)]
     pub version: Arc<Version>,
     pub permissions: Arc<PluginPermissions>,
 }

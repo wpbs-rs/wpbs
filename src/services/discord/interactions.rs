@@ -20,28 +20,39 @@ use uuid::Uuid;
 use crate::{
     database::Keyspaces,
     services::discord::Discord,
-    utils::channels::{CoreMessages, DatabaseMessages, RuntimeMessages},
+    utils::channels::{CoreMessages, DatabaseMessages, RuntimeMessages, RuntimeMessagesDiscord},
 };
 
 impl Discord {
+    // TODO: Split up in sub functions
+    #[allow(clippy::too_many_lines)]
     pub async fn application_command_registrations(
         http_client: Arc<Client>,
         core_tx: Arc<UnboundedSender<CoreMessages>>,
     ) -> Result<(), ()> {
+        info!("Managing Discord application command registrations");
+
         let (entries_sender, entries_receiver) = channel();
 
-        core_tx.send(CoreMessages::DatabaseModule(
-            DatabaseMessages::GetAllEntries(Keyspaces::DiscordApplicationCommands, entries_sender),
-        ));
+        core_tx
+            .send(CoreMessages::DatabaseModule(
+                DatabaseMessages::GetAllEntries(
+                    Keyspaces::DiscordApplicationCommands,
+                    entries_sender,
+                ),
+            ))
+            .unwrap();
 
         let entries: Vec<(Slice, Slice)> = entries_receiver.await.unwrap().unwrap();
 
         let (clear_sender, clear_receiver) = channel();
 
-        core_tx.send(CoreMessages::DatabaseModule(DatabaseMessages::Clear(
-            Keyspaces::DiscordApplicationCommands,
-            clear_sender,
-        )));
+        core_tx
+            .send(CoreMessages::DatabaseModule(DatabaseMessages::Clear(
+                Keyspaces::DiscordApplicationCommands,
+                clear_sender,
+            )))
+            .unwrap();
 
         clear_receiver.await.unwrap().unwrap();
 
@@ -66,9 +77,8 @@ impl Discord {
                     error!(
                         "Something went wrong while deserializing a command from the {plugin_id} plugin requested to register, error: {err}"
                     );
-                    continue;
                 }
-            };
+            }
         }
 
         let application_id = match http_client.current_user_application().await {
@@ -207,31 +217,67 @@ impl Discord {
             if commands_by_name.1.len() == 1 {
                 let command = commands_by_name.1.remove(0);
 
-                let plugin_results = results.entry(command.0).or_insert(vec![]);
+                let plugin_results = results.entry(command.0).or_insert(HashMap::new());
 
-                match Self::register_application_command(
+                if let Ok(command_id) = Self::register_application_command(
                     http_client.clone(),
                     application_id,
                     &mut discord_commands,
                     &command.1,
                 )
-                .await
-                {
-                    Ok(command_id) => {
-                        let (result_sender, result_receiver) = channel();
+                .await {
+                    let (result_sender, result_receiver) = channel();
 
-                        core_tx.send(CoreMessages::DatabaseModule(DatabaseMessages::Insert(
+                    core_tx
+                        .send(CoreMessages::DatabaseModule(DatabaseMessages::Insert(
                             Keyspaces::DiscordApplicationCommands,
                             command.1.name.as_bytes().to_vec(),
-                            sonic_rs::to_vec(&command_id).unwrap(),
+                            command_id.to_string().as_bytes().to_vec(),
                             result_sender,
-                        )));
+                        )))
+                        .unwrap();
 
-                        result_receiver.await.unwrap();
+                    result_receiver.await.unwrap().unwrap();
 
-                        plugin_results.push((command.1.name, Ok(command_id.get())));
-                    }
-                    Err(()) => {
+                    plugin_results.insert(command.1.name, Ok(command_id.get()));
+                } else {
+                    let err = format!(
+                        "Failed to register the {} command from the {} plugin",
+                        command.1.name, command.0
+                    );
+
+                    error!("{err}");
+
+                    plugin_results.insert(command.1.name, Err(err));
+                }
+            } else {
+                for (index, mut command) in commands_by_name.1.into_iter().enumerate() {
+                    command.1.name += format!("~{}", index + 1).as_str();
+
+                    let plugin_results = results.entry(command.0).or_insert(HashMap::new());
+
+                    if let Ok(command_id) = Self::register_application_command(
+                        http_client.clone(),
+                        application_id,
+                        &mut discord_commands,
+                        &command.1,
+                    )
+                    .await {
+                        let (result_sender, result_receiver) = channel();
+
+                        core_tx
+                            .send(CoreMessages::DatabaseModule(DatabaseMessages::Insert(
+                                Keyspaces::DiscordApplicationCommands,
+                                command.1.name.as_bytes().to_vec(),
+                                command_id.to_string().as_bytes().to_vec(),
+                                result_sender,
+                            )))
+                            .unwrap();
+
+                        result_receiver.await.unwrap().unwrap();
+
+                        plugin_results.insert(command.1.name, Ok(command_id.get()));
+                    } else {
                         let err = format!(
                             "Failed to register the {} command from the {} plugin",
                             command.1.name, command.0
@@ -239,52 +285,8 @@ impl Discord {
 
                         error!("{err}");
 
-                        plugin_results.push((command.1.name, Err(err)));
+                        plugin_results.insert(command.1.name, Err(err));
                     }
-                }
-            } else {
-                let mut command_name_occurence_count = 1;
-
-                for mut command in commands_by_name.1 {
-                    command.1.name += format!("~{command_name_occurence_count}").as_str();
-
-                    let plugin_results = results.entry(command.0).or_insert(vec![]);
-
-                    match Self::register_application_command(
-                        http_client.clone(),
-                        application_id,
-                        &mut discord_commands,
-                        &command.1,
-                    )
-                    .await
-                    {
-                        Ok(command_id) => {
-                            let (result_sender, result_receiver) = channel();
-
-                            core_tx.send(CoreMessages::DatabaseModule(DatabaseMessages::Insert(
-                                Keyspaces::DiscordApplicationCommands,
-                                command.1.name.as_bytes().to_vec(),
-                                sonic_rs::to_vec(&command_id).unwrap(),
-                                result_sender,
-                            )));
-
-                            result_receiver.await.unwrap();
-
-                            plugin_results.push((command.1.name, Ok(command_id.get())));
-                        }
-                        Err(()) => {
-                            let err = format!(
-                                "Failed to register the {} command from the {} plugin",
-                                command.1.name, command.0
-                            );
-
-                            error!("{err}");
-
-                            plugin_results.push((command.1.name, Err(err)));
-                        }
-                    }
-
-                    command_name_occurence_count += 1;
                 }
             }
         }
@@ -293,11 +295,11 @@ impl Discord {
             .await?;
 
         for result in results {
-            core_tx.send(CoreMessages::Runtime(RuntimeMessages::Discord(
-                crate::utils::channels::RuntimeMessagesDiscord::CallDiscordApplicationCommands(
-                    result.0, result.1,
-                ),
-            )));
+            core_tx
+                .send(CoreMessages::Runtime(RuntimeMessages::Discord(
+                    RuntimeMessagesDiscord::CallDiscordApplicationCommands(result.0, result.1),
+                )))
+                .unwrap();
         }
 
         Ok(())
