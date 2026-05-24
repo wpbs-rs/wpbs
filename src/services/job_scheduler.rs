@@ -39,34 +39,37 @@ impl JobScheduler {
         self.tokio_cron_scheduler.start().await?;
 
         Ok(tokio::spawn(async move {
+            let mut tasks = Vec::new();
+
             while let Some(message) = self.rx.recv().await {
                 match message {
                     JobSchedulerMessages::AddJob(plugin_id, cron, result) => {
                         let tokio_cron_scheduler = self.tokio_cron_scheduler.clone();
                         let core_tx = self.core_tx.clone();
 
-                        tokio::spawn(async move {
+                        tasks.push(tokio::spawn(async move {
                             result
                                 .send(
                                     Self::add_job(tokio_cron_scheduler, core_tx, plugin_id, cron)
                                         .await,
                                 )
                                 .unwrap();
-                        });
+                        }));
                     }
                     JobSchedulerMessages::RemoveJob(uuid, result) => {
                         let tokio_cron_scheduler = self.tokio_cron_scheduler.clone();
 
-                        tokio::spawn(async move {
+                        tasks.push(tokio::spawn(async move {
                             result
                                 .send(Self::remove_job(tokio_cron_scheduler, uuid).await)
                                 .unwrap();
-                        });
-                    }
-                    JobSchedulerMessages::Shutdown => {
-                        self.rx.close();
+                        }));
                     }
                 }
+            }
+
+            for task in tasks.drain(..) {
+                task.await.unwrap();
             }
 
             self.tokio_cron_scheduler.shutdown().await.unwrap();

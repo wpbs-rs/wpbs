@@ -10,6 +10,10 @@ use tracing::{debug, info};
 use crate::config::services::ConfigServices;
 
 pub struct Secrets {
+    pub services: SecretsServices,
+}
+
+pub struct SecretsServices {
     pub discord: Option<SecretsDiscord>,
 }
 
@@ -35,10 +39,12 @@ pub fn load_env_file(env_file_path: &Path) -> Result<()> {
 pub fn get_secrets(config: &ConfigServices) -> Result<Secrets> {
     info!("Validating the environment variables");
 
-    let mut secrets = Secrets { discord: None };
+    let mut secrets = Secrets {
+        services: SecretsServices { discord: None },
+    };
 
     if config.discord.enabled {
-        secrets.discord = Some(SecretsDiscord {
+        secrets.services.discord = Some(SecretsDiscord {
             bot_token: env::var("DISCORD_BOT_TOKEN")
                 .context("Failed to load the DISCORD_BOT_TOKEN environment variable")?,
         });

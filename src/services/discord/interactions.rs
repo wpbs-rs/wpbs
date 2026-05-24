@@ -3,7 +3,7 @@
 
 use std::{collections::HashMap, str::FromStr, sync::Arc};
 
-use anyhow::Result;
+use anyhow::{Result, bail};
 use fjall::Slice;
 use tokio::sync::{mpsc::UnboundedSender, oneshot::channel};
 use tracing::{error, info};
@@ -29,7 +29,7 @@ impl Discord {
     pub async fn application_command_registrations(
         http_client: Arc<Client>,
         core_tx: Arc<UnboundedSender<CoreMessages>>,
-    ) -> Result<(), ()> {
+    ) {
         info!("Managing Discord application command registrations");
 
         let (entries_sender, entries_receiver) = channel();
@@ -89,7 +89,7 @@ impl Discord {
                         "Something went wrong while deserializing the application data, error: {}",
                         &err
                     );
-                    return Err(());
+                    return;
                 }
             },
             Err(err) => {
@@ -97,7 +97,7 @@ impl Discord {
                     "Something went wrong while requesting the application data, error: {}",
                     &err
                 );
-                return Err(());
+                return;
             }
         };
 
@@ -113,7 +113,7 @@ impl Discord {
                     "Failed to build the get global commands request, error: {}",
                     &err
                 );
-                return Err(());
+                return;
             }
         };
 
@@ -133,7 +133,7 @@ impl Discord {
                         "Something went wrong while deserializing the global application commands, error: {}",
                         &err
                     );
-                    return Err(());
+                    return;
                 }
             },
             Err(err) => {
@@ -141,7 +141,7 @@ impl Discord {
                     "Something went wrong while requesting the global application commands, error: {}",
                     &err
                 );
-                return Err(());
+                return;
             }
         }
 
@@ -154,7 +154,7 @@ impl Discord {
                         "Something went wrong while deserializing the global application commands, error: {}",
                         &err
                     );
-                    return Err(());
+                    return;
                 }
             },
             Err(err) => {
@@ -162,7 +162,7 @@ impl Discord {
                     "Something went wrong while requesting the global application commands, error: {}",
                     &err
                 );
-                return Err(());
+                return;
             }
         };
 
@@ -293,8 +293,7 @@ impl Discord {
             }
         }
 
-        Self::delete_old_application_commands(http_client, application_id, &discord_commands)
-            .await?;
+        Self::delete_old_application_commands(http_client, application_id, &discord_commands).await;
 
         for result in results {
             core_tx
@@ -303,8 +302,6 @@ impl Discord {
                 )))
                 .unwrap();
         }
-
-        Ok(())
     }
 
     async fn register_application_command(
@@ -312,7 +309,7 @@ impl Discord {
         application_id: Id<ApplicationMarker>,
         discord_commands: &mut HashMap<String, Command>,
         command: &Command,
-    ) -> Result<Id<CommandMarker>, ()> {
+    ) -> Result<Id<CommandMarker>> {
         let request = if let Some(discord_command) = discord_commands.remove(&command.name) {
             let route = if let Some(guild_id) = command.guild_id {
                 Route::UpdateGuildCommand {
@@ -333,11 +330,10 @@ impl Discord {
             {
                 Ok(request) => request,
                 Err(err) => {
-                    error!(
+                    bail!(
                         "Failed to build the create global command request, error: {}",
                         &err
                     );
-                    return Err(());
                 }
             }
         } else {
@@ -358,11 +354,10 @@ impl Discord {
             {
                 Ok(request) => request,
                 Err(err) => {
-                    error!(
+                    bail!(
                         "Failed to build the create global command request, error: {}",
                         &err
                     );
-                    return Err(());
                 }
             }
         };
@@ -371,19 +366,17 @@ impl Discord {
             Ok(response) => match response.model().await {
                 Ok(command) => Ok(command.id.unwrap()),
                 Err(err) => {
-                    error!(
+                    bail!(
                         "Something went wrong while deserializing the create global command response, error: {}",
                         &err
                     );
-                    Err(())
                 }
             },
             Err(err) => {
-                error!(
+                bail!(
                     "Something went wrong while requesting a global command creation, error: {}",
                     &err
                 );
-                Err(())
             }
         }
     }
@@ -392,7 +385,7 @@ impl Discord {
         http_client: Arc<Client>,
         application_id: Id<ApplicationMarker>,
         discord_commands: &HashMap<String, Command>,
-    ) -> Result<(), ()> {
+    ) {
         for discord_command in discord_commands.values() {
             let route = match discord_command.guild_id {
                 Some(guild_id) => Route::DeleteGuildCommand {
@@ -413,7 +406,7 @@ impl Discord {
                         "Failed to build the create global command request, error: {}",
                         &err
                     );
-                    return Err(());
+                    return;
                 }
             };
 
@@ -428,11 +421,9 @@ impl Discord {
                         "Something went wrong while requesting a command deletion, error: {}",
                         &err
                     );
-                    return Err(());
+                    return;
                 }
             }
         }
-
-        Ok(())
     }
 }

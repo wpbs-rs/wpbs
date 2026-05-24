@@ -63,7 +63,6 @@ pub enum RuntimeMessagesCore {
         OSSender<Result<Vec<u8>, PluginError>>,
     ),
     UnloadPlugin(Uuid),
-    Shutdown,
 }
 
 pub enum RuntimeMessagesJobScheduler {
@@ -78,7 +77,6 @@ pub enum RuntimeMessagesDiscord {
 pub enum JobSchedulerMessages {
     AddJob(Uuid, String, OSSender<Result<Uuid>>),
     RemoveJob(Uuid, OSSender<Result<()>>),
-    Shutdown,
 }
 
 pub enum DiscordMessages {
@@ -87,23 +85,31 @@ pub enum DiscordMessages {
         DiscordRequests,
         OSSender<Result<Option<DiscordResponses>, PluginError>>,
     ),
-    Shutdown,
 }
 
 pub struct Channels {
     pub core: ChannelsCore,
-    pub job_scheduler: ChannelsJobScheduler,
-    pub discord: ChannelsDiscord,
     pub runtime: ChannelsRuntime,
+    pub services: ChannelsServices,
 }
 
 pub struct ChannelsCore {
-    pub main: UnboundedSender<CoreMessages>,
+    pub post_start: UnboundedSender<CoreMessages>,
     pub shutdown: UnboundedSender<CoreMessages>,
-    pub job_scheduler_tx: UnboundedSender<JobSchedulerMessages>,
-    pub discord_tx: UnboundedSender<DiscordMessages>,
+    pub job_scheduler_tx: Option<UnboundedSender<JobSchedulerMessages>>,
+    pub discord_tx: Option<UnboundedSender<DiscordMessages>>,
     pub runtime_tx: UnboundedSender<RuntimeMessages>,
     pub rx: UnboundedReceiver<CoreMessages>,
+}
+
+pub struct ChannelsRuntime {
+    pub core_tx: UnboundedSender<CoreMessages>,
+    pub rx: UnboundedReceiver<RuntimeMessages>,
+}
+
+pub struct ChannelsServices {
+    pub job_scheduler: Option<ChannelsJobScheduler>,
+    pub discord: Option<ChannelsDiscord>,
 }
 
 pub struct ChannelsJobScheduler {
@@ -116,37 +122,55 @@ pub struct ChannelsDiscord {
     pub rx: UnboundedReceiver<DiscordMessages>,
 }
 
-pub struct ChannelsRuntime {
-    pub core_tx: UnboundedSender<CoreMessages>,
-    pub rx: UnboundedReceiver<RuntimeMessages>,
-}
-
-pub fn new() -> Channels {
+pub fn new(job_scheduler_enabled: bool, discord_enabled: bool) -> Channels {
     let (core_tx, core_rx) = unbounded_channel::<CoreMessages>();
-    let (job_scheduler_tx, job_scheduler_rx) = unbounded_channel::<JobSchedulerMessages>();
-    let (discord_tx, discord_rx) = unbounded_channel::<DiscordMessages>();
+
     let (runtime_tx, runtime_rx) = unbounded_channel::<RuntimeMessages>();
+
+    let (job_scheduler_tx, job_scheduler_channels) = if job_scheduler_enabled {
+        let mpsc = unbounded_channel::<JobSchedulerMessages>();
+
+        (
+            Some(mpsc.0),
+            Some(ChannelsJobScheduler {
+                core_tx: core_tx.clone(),
+                rx: mpsc.1,
+            }),
+        )
+    } else {
+        (None, None)
+    };
+
+    let (discord_tx, discord_channels) = if discord_enabled {
+        let mpsc = unbounded_channel::<DiscordMessages>();
+
+        (
+            Some(mpsc.0),
+            Some(ChannelsDiscord {
+                core_tx: core_tx.clone(),
+                rx: mpsc.1,
+            }),
+        )
+    } else {
+        (None, None)
+    };
 
     Channels {
         core: ChannelsCore {
-            main: core_tx.clone(),
+            post_start: core_tx.clone(),
             shutdown: core_tx.clone(),
             job_scheduler_tx,
             discord_tx,
             runtime_tx,
             rx: core_rx,
         },
-        job_scheduler: ChannelsJobScheduler {
-            core_tx: core_tx.clone(),
-            rx: job_scheduler_rx,
-        },
-        discord: ChannelsDiscord {
-            core_tx: core_tx.clone(),
-            rx: discord_rx,
-        },
         runtime: ChannelsRuntime {
             core_tx,
             rx: runtime_rx,
+        },
+        services: ChannelsServices {
+            job_scheduler: job_scheduler_channels,
+            discord: discord_channels,
         },
     }
 }

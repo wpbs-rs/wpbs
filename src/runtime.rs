@@ -83,6 +83,8 @@ impl Runtime {
     #[hotpath::measure]
     pub fn start(mut self) -> JoinHandle<()> {
         tokio::spawn(async move {
+            let mut tasks = Vec::new();
+
             while let Some(message) = self.rx.recv().await {
                 match message {
                     RuntimeMessages::Core(core_message) => match core_message {
@@ -95,24 +97,24 @@ impl Runtime {
                             let plugins = self.plugins.clone();
                             let plugin_builder = self.plugin_builder.clone();
 
-                            tokio::spawn(Self::call_dependency_function(
+                            tasks.push(tokio::spawn(Self::call_dependency_function(
                                 plugins,
                                 plugin_builder,
                                 plugin_id,
                                 function_id,
                                 params,
                                 response_sender,
-                            ));
+                            )));
                         }
-                        RuntimeMessagesCore::UnloadPlugin(plugin) => {
+                        RuntimeMessagesCore::UnloadPlugin(plugin_id) => {
                             let plugins = self.plugins.clone();
+                            let plugin_builder = self.plugin_builder.clone();
 
-                            tokio::spawn(async move {
-                                plugins.write().await.remove(&plugin);
-                            });
-                        }
-                        RuntimeMessagesCore::Shutdown => {
-                            self.rx.close();
+                            tasks.push(tokio::spawn(async move {
+                                let plugin = plugins.write().await.remove(&plugin_id).unwrap();
+                                // TODO: Delay calling shutdown until all plugin calls have finished.
+                                Self::call_shutdown(plugin_builder, plugin_id, plugin).await;
+                            }));
                         }
                     },
                     RuntimeMessages::JobScheduler(job_scheduler_message) => {
@@ -121,12 +123,12 @@ impl Runtime {
                                 let plugins = self.plugins.clone();
                                 let plugin_builder = self.plugin_builder.clone();
 
-                                tokio::spawn(Self::call_scheduled_job(
+                                tasks.push(tokio::spawn(Self::call_scheduled_job(
                                     plugins,
                                     plugin_builder,
                                     plugin_id,
                                     job_id,
-                                ));
+                                )));
                             }
                         }
                     }
@@ -138,26 +140,30 @@ impl Runtime {
                             let plugins = self.plugins.clone();
                             let plugin_builder = self.plugin_builder.clone();
 
-                            tokio::spawn(Self::call_discord_application_commands(
+                            tasks.push(tokio::spawn(Self::call_discord_application_commands(
                                 plugins,
                                 plugin_builder,
                                 plugin_id,
                                 results,
-                            ));
+                            )));
                         }
                         RuntimeMessagesDiscord::CallDiscordEvent(plugin_id, event) => {
                             let plugins = self.plugins.clone();
                             let plugin_builder = self.plugin_builder.clone();
 
-                            tokio::spawn(Self::call_discord_event(
+                            tasks.push(tokio::spawn(Self::call_discord_event(
                                 plugins,
                                 plugin_builder,
                                 plugin_id,
                                 event,
-                            ));
+                            )));
                         }
                     },
                 }
+            }
+
+            for task in tasks.drain(..) {
+                task.await.unwrap();
             }
 
             self.shutdown().await;
@@ -462,42 +468,56 @@ impl Runtime {
         }
     }
 
-    async fn shutdown(self) {
-        // TODO: Allow all plugin calls to finish and then call the shutdown methods
-        // This will be achieved by closing the plugin call channel tasks which then will call
-        // shutdown one more time before returning
-        // Bellow code will get replaced with channel closers
+    async fn call_shutdown(
+        plugin_builder: Arc<PluginBuilder>,
+        plugin_id: Uuid,
+        plugin: RuntimePlugin,
+    ) {
+        let mut store = plugin_builder.store_builder(plugin_id, &plugin.state_pre);
 
-        for (plugin_id, plugin) in self.plugins.write().await.drain() {
-            let mut store = self
-                .plugin_builder
-                .store_builder(plugin_id, &plugin.state_pre);
+        let instance = match plugin.plugin_pre.instantiate_async(&mut store).await {
+            Ok(instance) => instance,
+            Err(err) => {
+                error!(
+                    "Failed to instantiate the {} plugin, error: {err}",
+                    plugin.state_pre.user_id
+                );
+                return;
+            }
+        };
 
-            let instance = match plugin.plugin_pre.instantiate_async(&mut store).await {
-                Ok(instance) => instance,
-                Err(err) => {
-                    error!(
-                        "Failed to instantiate the {} plugin, error: {err}",
-                        plugin.state_pre.user_id
-                    );
-                    continue;
-                }
-            };
-
-            match instance
-                .wpbs_plugin_core_export_functions()
-                .call_shutdown(store)
-                .await
-            {
-                Ok(result) => {
-                    if let Err(err) = result {
-                        error!("The {plugin_id} plugin returned an error: {err}");
-                    }
-                }
-                Err(err) => {
-                    error!("The {plugin_id} plugin experienced a critical error: {err}");
+        match instance
+            .wpbs_plugin_core_export_functions()
+            .call_shutdown(store)
+            .await
+        {
+            Ok(result) => {
+                if let Err(err) = result {
+                    error!("The {plugin_id} plugin returned an error: {err}");
                 }
             }
+            Err(err) => {
+                error!("The {plugin_id} plugin experienced a critical error: {err}");
+            }
+        }
+    }
+
+    // TODO: Delay calling shutdown until all plugin calls have finished.
+    async fn shutdown(self) {
+        let mut tasks = Vec::new();
+
+        for (plugin_id, plugin) in self.plugins.write().await.drain() {
+            let plugin_builder = self.plugin_builder.clone();
+
+            tasks.push(tokio::spawn(Self::call_shutdown(
+                plugin_builder,
+                plugin_id,
+                plugin,
+            )));
+        }
+
+        for task in tasks.drain(..) {
+            task.await.unwrap();
         }
     }
 }

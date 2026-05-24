@@ -48,8 +48,8 @@ interface core-import-types {
     }
 
     record services-registrations-result {
-        job-scheduler: option<job-scheduler-registrations-result>,
-        discord: option<discord-registrations-result>
+        job-scheduler: option<result<job-scheduler-registrations-result, host-error>>,
+        discord: option<result<discord-registrations-result, host-error>>
     }
 
     record deregistrations {
@@ -76,8 +76,8 @@ interface core-import-types {
     }
 
     record services-deregistrations-result {
-        job-scheduler: option<job-scheduler-deregistrations-result>,
-        discord: option<discord-deregistrations-result>,
+        job-scheduler: option<result<job-scheduler-deregistrations-result, host-error>>,
+        discord: option<result<discord-deregistrations-result, host-error>>,
     }
 }
 

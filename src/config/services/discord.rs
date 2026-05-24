@@ -11,6 +11,12 @@ pub struct ConfigDiscord {
     #[serde(default)]
     pub enabled: bool,
     #[serde(default)]
+    pub settings: ConfigDiscordSettings,
+}
+
+#[derive(Default, Deserialize)]
+pub struct ConfigDiscordSettings {
+    #[serde(default)]
     pub intents: Vec<ConfigDiscordIntents>,
 }
 

@@ -17,7 +17,7 @@ use twilight_http::Client;
 
 use crate::{
     SHUTDOWN,
-    config::services::discord::{ConfigDiscord, InternalIntents},
+    config::services::discord::{ConfigDiscordSettings, InternalIntents},
     utils::{
         channels::{CoreMessages, DiscordMessages},
         env::SecretsDiscord,
@@ -39,7 +39,7 @@ pub struct Discord {
 
 impl Discord {
     pub async fn new(
-        config: ConfigDiscord,
+        config: ConfigDiscordSettings,
         secrets: SecretsDiscord,
         core_tx: UnboundedSender<CoreMessages>,
         rx: UnboundedReceiver<DiscordMessages>,
@@ -87,10 +87,11 @@ impl Discord {
 
     #[hotpath::measure]
     pub fn start(mut self) -> JoinHandle<()> {
-        let mut tasks = Vec::with_capacity(self.shards.len());
+        let mut shard_tasks = Vec::with_capacity(self.shards.len());
+        let mut http_tasks = Vec::new();
 
         for shard in self.shards.drain(..) {
-            tasks.push(tokio::spawn(Self::shard_runner(
+            shard_tasks.push(tokio::spawn(Self::shard_runner(
                 self.cache.clone(),
                 self.core_tx.clone(),
                 shard,
@@ -101,31 +102,32 @@ impl Discord {
             while let Some(message) = self.rx.recv().await {
                 match message {
                     DiscordMessages::RegisterApplicationCommands => {
-                        tokio::spawn(Self::application_command_registrations(
+                        http_tasks.push(tokio::spawn(Self::application_command_registrations(
                             self.http_client.clone(),
                             self.core_tx.clone(),
-                        ));
+                        )));
                     }
                     DiscordMessages::Request(request, response_sender) => {
                         let http_client = self.http_client.clone();
                         let shard_message_senders = self.shard_message_senders.clone();
 
-                        tokio::spawn(async {
+                        http_tasks.push(tokio::spawn(async {
                             response_sender
                                 .send(
                                     Self::request(http_client, shard_message_senders, request)
                                         .await,
                                 )
                                 .unwrap();
-                        });
-                    }
-                    DiscordMessages::Shutdown => {
-                        self.rx.close();
+                        }));
                     }
                 }
             }
 
-            Self::shutdown(self.shard_message_senders.clone(), tasks).await;
+            for task in http_tasks.drain(..) {
+                task.await.unwrap();
+            }
+
+            Self::shutdown(self.shard_message_senders.clone(), shard_tasks).await;
         })
     }
 

@@ -8,7 +8,7 @@ use tracing::{debug, error, info, trace, warn};
 use uuid::Uuid;
 
 use crate::{
-    Shutdown,
+    Shutdown, TASKS,
     config::plugins::permissions::{
         core::PluginPermissionsCore,
         services::{
@@ -159,47 +159,26 @@ impl CoreImportFunctionsHost for InternalRuntime {
             });
 
             if let Some(job_scheduler_registrations) = services_registrations.job_scheduler {
-                result.services.as_mut().unwrap().job_scheduler =
-                    Some(JobSchedulerRegistrationsResult {
-                        scheduled_jobs: None,
-                    });
+                if TASKS.read().await.services.job_scheduler.is_none() {
+                    result.services.as_mut().unwrap().job_scheduler = Some(Err(HostError::from(
+                        "The job scheduler service is disabled",
+                    )));
+                } else {
+                    result.services.as_mut().unwrap().job_scheduler =
+                        Some(Ok(JobSchedulerRegistrationsResult {
+                            scheduled_jobs: None,
+                        }));
 
-                if let Some(scheduled_job_registrations) =
-                    job_scheduler_registrations.scheduled_jobs
-                {
-                    if self
-                        .metadata
-                        .permissions
-                        .services
-                        .job_scheduler
-                        .contains(&PluginPermissionsJobScheduler::ScheduledJobs)
+                    if let Some(scheduled_job_registrations) =
+                        job_scheduler_registrations.scheduled_jobs
                     {
-                        result
+                        if self
+                            .metadata
+                            .permissions
                             .services
-                            .as_mut()
-                            .unwrap()
                             .job_scheduler
-                            .as_mut()
-                            .unwrap()
-                            .scheduled_jobs = Some(Ok(HashMap::new()));
-
-                        for scheduled_job_registration in scheduled_job_registrations {
-                            let (sender, receiver) = channel();
-
-                            self.core_tx
-                                .send(CoreMessages::JobScheduler(JobSchedulerMessages::AddJob(
-                                    self.metadata.plugin_id,
-                                    scheduled_job_registration.clone(),
-                                    sender,
-                                )))
-                                .unwrap();
-
-                            let job_scheduler_result = receiver
-                                .await
-                                .unwrap()
-                                .map(|uuid| uuid.to_string())
-                                .map_err(|err| err.to_string());
-
+                            .contains(&PluginPermissionsJobScheduler::ScheduledJobs)
+                        {
                             result
                                 .services
                                 .as_mut()
@@ -207,181 +186,168 @@ impl CoreImportFunctionsHost for InternalRuntime {
                                 .job_scheduler
                                 .as_mut()
                                 .unwrap()
-                                .scheduled_jobs
+                                .as_mut()
+                                .unwrap()
+                                .scheduled_jobs = Some(Ok(HashMap::new()));
+
+                            for scheduled_job_registration in scheduled_job_registrations {
+                                let (sender, receiver) = channel();
+
+                                self.core_tx
+                                    .send(CoreMessages::JobScheduler(JobSchedulerMessages::AddJob(
+                                        self.metadata.plugin_id,
+                                        scheduled_job_registration.clone(),
+                                        sender,
+                                    )))
+                                    .unwrap();
+
+                                let job_scheduler_result = receiver
+                                    .await
+                                    .unwrap()
+                                    .map(|uuid| uuid.to_string())
+                                    .map_err(|err| err.to_string());
+
+                                result
+                                    .services
+                                    .as_mut()
+                                    .unwrap()
+                                    .job_scheduler
+                                    .as_mut()
+                                    .unwrap()
+                                    .as_mut()
+                                    .unwrap()
+                                    .scheduled_jobs
+                                    .as_mut()
+                                    .unwrap()
+                                    .as_mut()
+                                    .unwrap()
+                                    .insert(scheduled_job_registration, job_scheduler_result);
+                            }
+                        } else {
+                            result
+                                .services
+                                .as_mut()
+                                .unwrap()
+                                .job_scheduler
                                 .as_mut()
                                 .unwrap()
                                 .as_mut()
                                 .unwrap()
-                                .insert(scheduled_job_registration, job_scheduler_result);
+                                .scheduled_jobs = Some(Err(HostError::from(
+                                "Plugin is not allowed to register scheduled jobs",
+                            )));
                         }
-                    } else {
-                        result
-                            .services
-                            .as_mut()
-                            .unwrap()
-                            .job_scheduler
-                            .as_mut()
-                            .unwrap()
-                            .scheduled_jobs = Some(Err(HostError::from(
-                            "Plugin is not allowed to register scheduled jobs",
-                        )));
                     }
                 }
             }
 
             if let Some(discord_registrations) = services_registrations.discord {
-                result.services.as_mut().unwrap().discord = Some(DiscordRegistrationsResult {
-                    events: None,
-                    interactions: None,
-                });
+                if TASKS.read().await.services.discord.is_none() {
+                    result.services.as_mut().unwrap().discord =
+                        Some(Err(HostError::from("The Discord service is disabled")));
+                } else {
+                    result.services.as_mut().unwrap().discord =
+                        Some(Ok(DiscordRegistrationsResult {
+                            events: None,
+                            interactions: None,
+                        }));
 
-                if let Some(event_registrations) = discord_registrations.events {
-                    let event_registrations: Vec<PluginPermissionsDiscordEvents> =
-                        event_registrations.into();
+                    if let Some(event_registrations) = discord_registrations.events {
+                        let event_registrations: Vec<PluginPermissionsDiscordEvents> =
+                            event_registrations.into();
 
-                    for event_registration in event_registrations {
-                        if !self
-                            .metadata
-                            .permissions
-                            .services
-                            .discord
-                            .events
-                            .contains(&event_registration)
-                        {
-                            result
+                        for event_registration in event_registrations {
+                            if !self
+                                .metadata
+                                .permissions
                                 .services
-                                .as_mut()
-                                .unwrap()
                                 .discord
-                                .as_mut()
-                                .unwrap()
-                                .events = Some(Err(format!(
-                                "Plugin is not allowed to register for the {event_registration:?} event"
-                            )));
-                            break;
-                        }
-                    }
-
-                    result
-                        .services
-                        .as_mut()
-                        .unwrap()
-                        .discord
-                        .as_mut()
-                        .unwrap()
-                        .events = Some(Ok(()));
-                }
-
-                if let Some(interaction_registrations) = discord_registrations.interactions {
-                    result
-                        .services
-                        .as_mut()
-                        .unwrap()
-                        .discord
-                        .as_mut()
-                        .unwrap()
-                        .interactions = Some(DiscordRegistrationsInteractionsResult {
-                        application_commands: None,
-                        message_components: None,
-                        modals: None,
-                    });
-
-                    if let Some(application_command_registrations) =
-                        interaction_registrations.application_commands
-                    {
-                        if self
-                            .metadata
-                            .permissions
-                            .services
-                            .discord
-                            .interactions
-                            .contains(&PluginPermissionsDiscordInteractions::ApplicationCommands)
-                        {
-                            for (index, application_command_registration) in
-                                application_command_registrations.into_iter().enumerate()
+                                .events
+                                .contains(&event_registration)
                             {
-                                let (sender, receiver) = channel();
-
-                                self.core_tx
-                                    .send(CoreMessages::DatabaseModule(DatabaseMessages::Insert(
-                                        Keyspaces::DiscordApplicationCommands,
-                                        format!("{}:{}", self.metadata.plugin_id, index + 1)
-                                            .as_bytes()
-                                            .to_vec(),
-                                        application_command_registration.as_bytes().to_vec(),
-                                        sender,
-                                    )))
-                                    .unwrap();
-
-                                receiver.await.unwrap().unwrap();
+                                result
+                                    .services
+                                    .as_mut()
+                                    .unwrap()
+                                    .discord
+                                    .as_mut()
+                                    .unwrap()
+                                    .as_mut()
+                                    .unwrap()
+                                    .events = Some(Err(format!(
+                                    "Plugin is not allowed to register for the {event_registration:?} event"
+                                )));
+                                break;
                             }
-
-                            result
-                                .services
-                                .as_mut()
-                                .unwrap()
-                                .discord
-                                .as_mut()
-                                .unwrap()
-                                .interactions
-                                .as_mut()
-                                .unwrap()
-                                .application_commands = Some(Ok(()));
-                        } else {
-                            result
-                                .services
-                                .as_mut()
-                                .unwrap()
-                                .discord
-                                .as_mut()
-                                .unwrap()
-                                .interactions
-                                .as_mut()
-                                .unwrap()
-                                .application_commands = Some(Err(HostError::from(
-                                "Plugin is not allowed to register application command interactions",
-                            )));
                         }
+
+                        result
+                            .services
+                            .as_mut()
+                            .unwrap()
+                            .discord
+                            .as_mut()
+                            .unwrap()
+                            .as_mut()
+                            .unwrap()
+                            .events = Some(Ok(()));
                     }
 
-                    if let Some(message_component_registrations) =
-                        interaction_registrations.message_components
-                    {
-                        if self
-                            .metadata
-                            .permissions
+                    if let Some(interaction_registrations) = discord_registrations.interactions {
+                        result
                             .services
+                            .as_mut()
+                            .unwrap()
                             .discord
-                            .interactions
-                            .contains(&PluginPermissionsDiscordInteractions::MessageComponents)
+                            .as_mut()
+                            .unwrap()
+                            .as_mut()
+                            .unwrap()
+                            .interactions = Some(DiscordRegistrationsInteractionsResult {
+                            application_commands: None,
+                            message_components: None,
+                            modals: None,
+                        });
+
+                        if let Some(application_command_registrations) =
+                            interaction_registrations.application_commands
                         {
-                            result
+                            if self
+                                .metadata
+                                .permissions
                                 .services
-                                .as_mut()
-                                .unwrap()
                                 .discord
-                                .as_mut()
-                                .unwrap()
                                 .interactions
-                                .as_mut()
-                                .unwrap()
-                                .message_components = Some(Ok(Vec::new()));
+                                .contains(
+                                    &PluginPermissionsDiscordInteractions::ApplicationCommands,
+                                )
+                            {
+                                for (index, application_command_registration) in
+                                    application_command_registrations.into_iter().enumerate()
+                                {
+                                    let (sender, receiver) = channel();
 
-                            for _ in 0..message_component_registrations {
-                                let uuid = Uuid::new_v4();
+                                    self.core_tx
+                                        .send(CoreMessages::DatabaseModule(
+                                            DatabaseMessages::Insert(
+                                                Keyspaces::DiscordApplicationCommands,
+                                                format!(
+                                                    "{}:{}",
+                                                    self.metadata.plugin_id,
+                                                    index + 1
+                                                )
+                                                .as_bytes()
+                                                .to_vec(),
+                                                application_command_registration
+                                                    .as_bytes()
+                                                    .to_vec(),
+                                                sender,
+                                            ),
+                                        ))
+                                        .unwrap();
 
-                                let (sender, receiver) = channel();
-
-                                self.core_tx
-                                    .send(CoreMessages::DatabaseModule(DatabaseMessages::Insert(
-                                        Keyspaces::DiscordMessageComponents,
-                                        uuid.as_bytes().to_vec(),
-                                        self.metadata.plugin_id.as_bytes().to_vec(),
-                                        sender,
-                                    )))
-                                    .unwrap();
-
-                                receiver.await.unwrap().unwrap();
+                                    receiver.await.unwrap().unwrap();
+                                }
 
                                 result
                                     .services
@@ -390,70 +356,13 @@ impl CoreImportFunctionsHost for InternalRuntime {
                                     .discord
                                     .as_mut()
                                     .unwrap()
+                                    .as_mut()
+                                    .unwrap()
                                     .interactions
                                     .as_mut()
                                     .unwrap()
-                                    .message_components
-                                    .as_mut()
-                                    .unwrap()
-                                    .as_mut()
-                                    .unwrap()
-                                    .push(uuid.to_string());
-                            }
-                        } else {
-                            result
-                                .services
-                                .as_mut()
-                                .unwrap()
-                                .discord
-                                .as_mut()
-                                .unwrap()
-                                .interactions
-                                .as_mut()
-                                .unwrap()
-                                .message_components = Some(Err(HostError::from(
-                                "Plugin is not allowed to register message component interactions",
-                            )));
-                        }
-                    }
-
-                    if let Some(modal_registrations) = interaction_registrations.modals {
-                        if self
-                            .metadata
-                            .permissions
-                            .services
-                            .discord
-                            .interactions
-                            .contains(&PluginPermissionsDiscordInteractions::Modals)
-                        {
-                            result
-                                .services
-                                .as_mut()
-                                .unwrap()
-                                .discord
-                                .as_mut()
-                                .unwrap()
-                                .interactions
-                                .as_mut()
-                                .unwrap()
-                                .modals = Some(Ok(Vec::new()));
-
-                            for _ in 0..modal_registrations {
-                                let uuid = Uuid::new_v4();
-
-                                let (sender, receiver) = channel();
-
-                                self.core_tx
-                                    .send(CoreMessages::DatabaseModule(DatabaseMessages::Insert(
-                                        Keyspaces::DiscordModals,
-                                        uuid.as_bytes().to_vec(),
-                                        self.metadata.plugin_id.as_bytes().to_vec(),
-                                        sender,
-                                    )))
-                                    .unwrap();
-
-                                receiver.await.unwrap().unwrap();
-
+                                    .application_commands = Some(Ok(()));
+                            } else {
                                 result
                                     .services
                                     .as_mut()
@@ -461,30 +370,175 @@ impl CoreImportFunctionsHost for InternalRuntime {
                                     .discord
                                     .as_mut()
                                     .unwrap()
+                                    .as_mut()
+                                    .unwrap()
                                     .interactions
                                     .as_mut()
                                     .unwrap()
-                                    .modals
-                                    .as_mut()
-                                    .unwrap()
-                                    .as_mut()
-                                    .unwrap()
-                                    .push(uuid.to_string());
+                                    .application_commands = Some(Err(HostError::from(
+                                    "Plugin is not allowed to register application command interactions",
+                                )));
                             }
-                        } else {
-                            result
+                        }
+
+                        if let Some(message_component_registrations) =
+                            interaction_registrations.message_components
+                        {
+                            if self
+                                .metadata
+                                .permissions
                                 .services
-                                .as_mut()
-                                .unwrap()
                                 .discord
-                                .as_mut()
-                                .unwrap()
                                 .interactions
-                                .as_mut()
-                                .unwrap()
-                                .modals = Some(Err(HostError::from(
-                                "Plugin is not allowed to register modal interactions",
-                            )));
+                                .contains(&PluginPermissionsDiscordInteractions::MessageComponents)
+                            {
+                                result
+                                    .services
+                                    .as_mut()
+                                    .unwrap()
+                                    .discord
+                                    .as_mut()
+                                    .unwrap()
+                                    .as_mut()
+                                    .unwrap()
+                                    .interactions
+                                    .as_mut()
+                                    .unwrap()
+                                    .message_components = Some(Ok(Vec::new()));
+
+                                for _ in 0..message_component_registrations {
+                                    let uuid = Uuid::new_v4();
+
+                                    let (sender, receiver) = channel();
+
+                                    self.core_tx
+                                        .send(CoreMessages::DatabaseModule(
+                                            DatabaseMessages::Insert(
+                                                Keyspaces::DiscordMessageComponents,
+                                                uuid.as_bytes().to_vec(),
+                                                self.metadata.plugin_id.as_bytes().to_vec(),
+                                                sender,
+                                            ),
+                                        ))
+                                        .unwrap();
+
+                                    receiver.await.unwrap().unwrap();
+
+                                    result
+                                        .services
+                                        .as_mut()
+                                        .unwrap()
+                                        .discord
+                                        .as_mut()
+                                        .unwrap()
+                                        .as_mut()
+                                        .unwrap()
+                                        .interactions
+                                        .as_mut()
+                                        .unwrap()
+                                        .message_components
+                                        .as_mut()
+                                        .unwrap()
+                                        .as_mut()
+                                        .unwrap()
+                                        .push(uuid.to_string());
+                                }
+                            } else {
+                                result
+                                    .services
+                                    .as_mut()
+                                    .unwrap()
+                                    .discord
+                                    .as_mut()
+                                    .unwrap()
+                                    .as_mut()
+                                    .unwrap()
+                                    .interactions
+                                    .as_mut()
+                                    .unwrap()
+                                    .message_components = Some(Err(HostError::from(
+                                    "Plugin is not allowed to register message component interactions",
+                                )));
+                            }
+                        }
+
+                        if let Some(modal_registrations) = interaction_registrations.modals {
+                            if self
+                                .metadata
+                                .permissions
+                                .services
+                                .discord
+                                .interactions
+                                .contains(&PluginPermissionsDiscordInteractions::Modals)
+                            {
+                                result
+                                    .services
+                                    .as_mut()
+                                    .unwrap()
+                                    .discord
+                                    .as_mut()
+                                    .unwrap()
+                                    .as_mut()
+                                    .unwrap()
+                                    .interactions
+                                    .as_mut()
+                                    .unwrap()
+                                    .modals = Some(Ok(Vec::new()));
+
+                                for _ in 0..modal_registrations {
+                                    let uuid = Uuid::new_v4();
+
+                                    let (sender, receiver) = channel();
+
+                                    self.core_tx
+                                        .send(CoreMessages::DatabaseModule(
+                                            DatabaseMessages::Insert(
+                                                Keyspaces::DiscordModals,
+                                                uuid.as_bytes().to_vec(),
+                                                self.metadata.plugin_id.as_bytes().to_vec(),
+                                                sender,
+                                            ),
+                                        ))
+                                        .unwrap();
+
+                                    receiver.await.unwrap().unwrap();
+
+                                    result
+                                        .services
+                                        .as_mut()
+                                        .unwrap()
+                                        .discord
+                                        .as_mut()
+                                        .unwrap()
+                                        .as_mut()
+                                        .unwrap()
+                                        .interactions
+                                        .as_mut()
+                                        .unwrap()
+                                        .modals
+                                        .as_mut()
+                                        .unwrap()
+                                        .as_mut()
+                                        .unwrap()
+                                        .push(uuid.to_string());
+                                }
+                            } else {
+                                result
+                                    .services
+                                    .as_mut()
+                                    .unwrap()
+                                    .discord
+                                    .as_mut()
+                                    .unwrap()
+                                    .as_mut()
+                                    .unwrap()
+                                    .interactions
+                                    .as_mut()
+                                    .unwrap()
+                                    .modals = Some(Err(HostError::from(
+                                    "Plugin is not allowed to register modal interactions",
+                                )));
+                            }
                         }
                     }
                 }
@@ -532,25 +586,32 @@ impl CoreImportFunctionsHost for InternalRuntime {
             });
 
             if let Some(job_scheduler_deregistrations) = services_deregistrations.job_scheduler {
-                result.services.as_mut().unwrap().job_scheduler =
-                    Some(JobSchedulerDeregistrationsResult {
-                        scheduled_jobs: None,
-                    });
+                if TASKS.read().await.services.job_scheduler.is_none() {
+                    result.services.as_mut().unwrap().job_scheduler = Some(Err(HostError::from(
+                        "The job scheduler service is disabled",
+                    )));
+                } else {
+                    result.services.as_mut().unwrap().job_scheduler =
+                        Some(Ok(JobSchedulerDeregistrationsResult {
+                            scheduled_jobs: None,
+                        }));
 
-                if let Some(scheduled_job_deregistrations) =
-                    job_scheduler_deregistrations.scheduled_jobs
-                {
-                    for scheduled_job_deregistration in scheduled_job_deregistrations {
-                        let (sender, receiver) = channel();
+                    if let Some(scheduled_job_deregistrations) =
+                        job_scheduler_deregistrations.scheduled_jobs
+                    {
+                        for scheduled_job_deregistration in scheduled_job_deregistrations {
+                            let (sender, receiver) = channel();
 
-                        let job_id = match Uuid::parse_str(&scheduled_job_deregistration) {
-                            Ok(job_id) => job_id,
-                            Err(err) => {
-                                result
+                            let job_id = match Uuid::parse_str(&scheduled_job_deregistration) {
+                                Ok(job_id) => job_id,
+                                Err(err) => {
+                                    result
                                 .services
                                 .as_mut()
                                 .unwrap()
                                 .job_scheduler
+                                .as_mut()
+                                .unwrap()
                                 .as_mut()
                                 .unwrap()
                                 .scheduled_jobs
@@ -562,30 +623,33 @@ impl CoreImportFunctionsHost for InternalRuntime {
                                         "An error occurred while parsing the job id string: {err}"
                                     )),
                                 );
-                                continue;
-                            }
-                        };
+                                    continue;
+                                }
+                            };
 
-                        self.core_tx
-                            .send(CoreMessages::JobScheduler(JobSchedulerMessages::RemoveJob(
-                                job_id, sender,
-                            )))
-                            .unwrap();
+                            self.core_tx
+                                .send(CoreMessages::JobScheduler(JobSchedulerMessages::RemoveJob(
+                                    job_id, sender,
+                                )))
+                                .unwrap();
 
-                        result
-                            .services
-                            .as_mut()
-                            .unwrap()
-                            .job_scheduler
-                            .as_mut()
-                            .unwrap()
-                            .scheduled_jobs
-                            .as_mut()
-                            .unwrap()
-                            .insert(
-                                scheduled_job_deregistration,
-                                receiver.await.unwrap().map_err(|err| err.to_string()),
-                            );
+                            result
+                                .services
+                                .as_mut()
+                                .unwrap()
+                                .job_scheduler
+                                .as_mut()
+                                .unwrap()
+                                .as_mut()
+                                .unwrap()
+                                .scheduled_jobs
+                                .as_mut()
+                                .unwrap()
+                                .insert(
+                                    scheduled_job_deregistration,
+                                    receiver.await.unwrap().map_err(|err| err.to_string()),
+                                );
+                        }
                     }
                 }
             }
