@@ -24,10 +24,10 @@ pub async fn start(
 ) -> Result<()> {
     if let Some(job_scheduler_channels) = channels.job_scheduler {
         let job_scheduler =
-            JobScheduler::new(job_scheduler_channels.core_tx, job_scheduler_channels.rx).await?;
+            JobScheduler::new(job_scheduler_channels.core_tx, job_scheduler_channels.rx);
 
         if SHUTDOWN.read().await.is_none() {
-            TASKS.write().await.services.job_scheduler = Some(job_scheduler.start().await?);
+            TASKS.write().await.services.job_scheduler = Some(job_scheduler.start());
         } else {
             drop(job_scheduler);
         }

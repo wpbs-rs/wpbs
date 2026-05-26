@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 /* Copyright © 2026 Eduard Smet */
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use tokio::sync::oneshot::channel;
 use tracing::{debug, error, info, trace, warn};
@@ -12,7 +12,7 @@ use crate::{
     config::plugins::permissions::{
         core::PluginPermissionsCore,
         services::{
-            discord::{PluginPermissionsDiscordEvents, PluginPermissionsDiscordInteractions},
+            discord::PluginPermissionsDiscordInteractions,
             job_scheduler::PluginPermissionsJobScheduler,
         },
     },
@@ -253,34 +253,6 @@ impl CoreImportFunctionsHost for InternalRuntime {
                         }));
 
                     if let Some(event_registrations) = discord_registrations.events {
-                        let event_registrations: Vec<PluginPermissionsDiscordEvents> =
-                            event_registrations.into();
-
-                        for event_registration in event_registrations {
-                            if !self
-                                .metadata
-                                .permissions
-                                .services
-                                .discord
-                                .events
-                                .contains(&event_registration)
-                            {
-                                result
-                                    .services
-                                    .as_mut()
-                                    .unwrap()
-                                    .discord
-                                    .as_mut()
-                                    .unwrap()
-                                    .as_mut()
-                                    .unwrap()
-                                    .events = Some(Err(format!(
-                                    "Plugin is not allowed to register for the {event_registration:?} event"
-                                )));
-                                break;
-                            }
-                        }
-
                         result
                             .services
                             .as_mut()
@@ -290,7 +262,81 @@ impl CoreImportFunctionsHost for InternalRuntime {
                             .unwrap()
                             .as_mut()
                             .unwrap()
-                            .events = Some(Ok(()));
+                            .events = Some(Vec::new());
+
+                        for event_registration in event_registrations {
+                            if self
+                                .metadata
+                                .permissions
+                                .services
+                                .discord
+                                .events
+                                .contains(&event_registration.into())
+                            {
+                                let (get_sender, get_receiver) = channel();
+
+                                self.core_tx
+                                    .send(CoreMessages::DatabaseModule(DatabaseMessages::Get(
+                                        Keyspaces::DiscordEvents,
+                                        event_registration.into(),
+                                        get_sender,
+                                    )))
+                                    .unwrap();
+
+                                let mut set = match get_receiver.await.unwrap().unwrap() {
+                                    Some(response) => sonic_rs::from_slice(&response).unwrap(),
+                                    None => HashSet::new(),
+                                };
+
+                                set.insert(self.metadata.plugin_id.to_string());
+
+                                let (insert_sender, insert_receiver) = channel();
+
+                                self.core_tx
+                                    .send(CoreMessages::DatabaseModule(DatabaseMessages::Insert(
+                                        Keyspaces::DiscordEvents,
+                                        event_registration.into(),
+                                        sonic_rs::to_vec(&set).unwrap(),
+                                        insert_sender,
+                                    )))
+                                    .unwrap();
+
+                                insert_receiver.await.unwrap().unwrap();
+
+                                result
+                                    .services
+                                    .as_mut()
+                                    .unwrap()
+                                    .discord
+                                    .as_mut()
+                                    .unwrap()
+                                    .as_mut()
+                                    .unwrap()
+                                    .events
+                                    .as_mut()
+                                    .unwrap()
+                                    .push((event_registration, Ok(())));
+                            } else {
+                                result
+                                    .services
+                                    .as_mut()
+                                    .unwrap()
+                                    .discord
+                                    .as_mut()
+                                    .unwrap()
+                                    .as_mut()
+                                    .unwrap()
+                                    .events
+                                    .as_mut()
+                                    .unwrap()
+                                    .push((
+                                        event_registration,
+                                        Err(HostError::from(
+                                            "Plugin is not allowed to register for this event",
+                                        )),
+                                    ));
+                            }
+                        }
                     }
 
                     if let Some(interaction_registrations) = discord_registrations.interactions {
@@ -548,19 +594,6 @@ impl CoreImportFunctionsHost for InternalRuntime {
         result
     }
 
-    async fn unload(&mut self, reason: String) {
-        self.core_tx
-            .send(CoreMessages::Runtime(RuntimeMessages::Core(
-                RuntimeMessagesCore::UnloadPlugin(self.metadata.plugin_id),
-            )))
-            .unwrap();
-
-        info!(
-            "The {} plugin has unloaded itself, reason: {reason}",
-            self.metadata.user_id
-        );
-    }
-
     async fn deregister(&mut self, deregistrations: Deregistrations) -> DeregistrationsResult {
         let mut result = DeregistrationsResult {
             core: None,
@@ -660,6 +693,19 @@ impl CoreImportFunctionsHost for InternalRuntime {
         }
 
         result
+    }
+
+    async fn remove(&mut self, reason: String) {
+        self.core_tx
+            .send(CoreMessages::Runtime(RuntimeMessages::Core(
+                RuntimeMessagesCore::UnloadPlugin(self.metadata.plugin_id),
+            )))
+            .unwrap();
+
+        info!(
+            "The {} plugin has unloaded itself, reason: {reason}",
+            self.metadata.user_id
+        );
     }
 
     async fn shutdown(&mut self, restart: bool) -> Result<(), HostError> {

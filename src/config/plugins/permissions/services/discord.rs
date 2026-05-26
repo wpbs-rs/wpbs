@@ -15,6 +15,7 @@ pub struct PluginPermissionsDiscord {
 
 #[derive(Debug, Deserialize, PartialEq, Serialize)]
 pub enum PluginPermissionsDiscordEvents {
+    All,
     MessageCreate,
     InteractionCreate,
     ThreadCreate,
@@ -25,51 +26,45 @@ pub enum PluginPermissionsDiscordEvents {
     ThreadUpdate,
 }
 
-impl From<DiscordEventKinds> for Vec<PluginPermissionsDiscordEvents> {
-    fn from(requested_discord_registrations: DiscordEventKinds) -> Self {
-        let mut plugin_permissions_discord_events = Vec::new();
-
-        if requested_discord_registrations.contains(DiscordEventKinds::MESSAGE_CREATE) {
-            plugin_permissions_discord_events.push(PluginPermissionsDiscordEvents::MessageCreate);
+impl From<DiscordEventKinds> for PluginPermissionsDiscordEvents {
+    fn from(requested_discord_registration: DiscordEventKinds) -> Self {
+        match requested_discord_registration {
+            DiscordEventKinds::MessageCreate => PluginPermissionsDiscordEvents::MessageCreate,
+            DiscordEventKinds::InteractionCreate => {
+                PluginPermissionsDiscordEvents::InteractionCreate
+            }
+            DiscordEventKinds::ThreadCreate => PluginPermissionsDiscordEvents::ThreadCreate,
+            DiscordEventKinds::ThreadDelete => PluginPermissionsDiscordEvents::ThreadDelete,
+            DiscordEventKinds::ThreadListSync => PluginPermissionsDiscordEvents::ThreadListSync,
+            DiscordEventKinds::ThreadMemberUpdate => {
+                PluginPermissionsDiscordEvents::ThreadMemberUpdate
+            }
+            DiscordEventKinds::ThreadMembersUpdate => {
+                PluginPermissionsDiscordEvents::ThreadMembersUpdate
+            }
+            DiscordEventKinds::ThreadUpdate => PluginPermissionsDiscordEvents::ThreadUpdate,
         }
+    }
+}
 
-        if requested_discord_registrations.contains(DiscordEventKinds::INTERACTION_CREATE) {
-            plugin_permissions_discord_events
-                .push(PluginPermissionsDiscordEvents::InteractionCreate);
+impl From<DiscordEventKinds> for Vec<u8> {
+    fn from(requested_discord_registration: DiscordEventKinds) -> Self {
+        match requested_discord_registration {
+            DiscordEventKinds::MessageCreate => "MESSAGE_CREATE".as_bytes().to_vec(),
+            DiscordEventKinds::InteractionCreate => "INTERACTION_CREATE".as_bytes().to_vec(),
+            DiscordEventKinds::ThreadCreate => "THREAD-CREATE".as_bytes().to_vec(),
+            DiscordEventKinds::ThreadDelete => "THREAD_DELETE".as_bytes().to_vec(),
+            DiscordEventKinds::ThreadListSync => "THREAD_LIST_SYNC".as_bytes().to_vec(),
+            DiscordEventKinds::ThreadMemberUpdate => "THREAD_MEMBER_UPDATE".as_bytes().to_vec(),
+            DiscordEventKinds::ThreadMembersUpdate => "THREAD_MEMBERS_UPDATE".as_bytes().to_vec(),
+            DiscordEventKinds::ThreadUpdate => "THREAD_UPDATE".as_bytes().to_vec(),
         }
-
-        if requested_discord_registrations.contains(DiscordEventKinds::THREAD_CREATE) {
-            plugin_permissions_discord_events.push(PluginPermissionsDiscordEvents::ThreadCreate);
-        }
-
-        if requested_discord_registrations.contains(DiscordEventKinds::THREAD_DELETE) {
-            plugin_permissions_discord_events.push(PluginPermissionsDiscordEvents::ThreadDelete);
-        }
-
-        if requested_discord_registrations.contains(DiscordEventKinds::THREAD_LIST_SYNC) {
-            plugin_permissions_discord_events.push(PluginPermissionsDiscordEvents::ThreadListSync);
-        }
-
-        if requested_discord_registrations.contains(DiscordEventKinds::THREAD_MEMBER_UPDATE) {
-            plugin_permissions_discord_events
-                .push(PluginPermissionsDiscordEvents::ThreadMemberUpdate);
-        }
-
-        if requested_discord_registrations.contains(DiscordEventKinds::THREAD_MEMBERS_UPDATE) {
-            plugin_permissions_discord_events
-                .push(PluginPermissionsDiscordEvents::ThreadMembersUpdate);
-        }
-
-        if requested_discord_registrations.contains(DiscordEventKinds::THREAD_UPDATE) {
-            plugin_permissions_discord_events.push(PluginPermissionsDiscordEvents::ThreadUpdate);
-        }
-
-        plugin_permissions_discord_events
     }
 }
 
 #[derive(Deserialize, PartialEq, Serialize)]
 pub enum PluginPermissionsDiscordInteractions {
+    All,
     ApplicationCommands,
     MessageComponents,
     Modals,

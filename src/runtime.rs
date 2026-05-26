@@ -247,7 +247,7 @@ impl Runtime {
                 Ok(instance_pre) => instance_pre,
                 Err(err) => {
                     error!(
-                        "The {plugin_user_id} plugin returned an error while pre-instantiating (r1): {err}"
+                        "The {plugin_user_id} plugin returned an error while pre-instantiating (phase 1): {err}"
                     );
                     return;
                 }
@@ -257,7 +257,7 @@ impl Runtime {
                 Ok(plugin_pre) => plugin_pre,
                 Err(err) => {
                     error!(
-                        "The {plugin_user_id} plugin returned an error while pre-instantiating (r2): {err}"
+                        "The {plugin_user_id} plugin returned an error while pre-instantiating (phase 2): {err}"
                     );
                     return;
                 }
@@ -327,6 +327,7 @@ impl Runtime {
         Ok(())
     }
 
+    #[hotpath::measure]
     async fn instantiate(
         plugins: Arc<RwLock<HashMap<Uuid, RuntimePlugin>>>,
         plugin_builder: Arc<PluginBuilder>,

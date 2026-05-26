@@ -73,6 +73,7 @@ static TASKS: LazyLock<RwLock<Tasks>> = LazyLock::new(|| {
         },
     })
 });
+
 static SHUTDOWN: LazyLock<RwLock<Option<Shutdown>>> = LazyLock::new(|| RwLock::new(None));
 
 #[tokio::main]

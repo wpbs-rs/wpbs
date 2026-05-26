@@ -1,13 +1,20 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 /* Copyright © 2026 Eduard Smet */
 
-use anyhow::Result;
+use std::{collections::HashMap, str::FromStr, sync::Arc};
+
+use anyhow::{Result, bail};
+use chrono::{Local, Utc};
+use cron::Schedule;
 use tokio::{
-    sync::mpsc::{UnboundedReceiver, UnboundedSender},
+    sync::{
+        RwLock,
+        mpsc::{UnboundedReceiver, UnboundedSender},
+    },
     task::JoinHandle,
+    time::Instant,
 };
-use tokio_cron_scheduler::{Job, JobScheduler as TokioCronScheduler};
-use tracing::info;
+use tracing::{error, info};
 use uuid::Uuid;
 
 use crate::utils::channels::{
@@ -15,54 +22,47 @@ use crate::utils::channels::{
 };
 
 pub struct JobScheduler {
-    tokio_cron_scheduler: TokioCronScheduler,
+    jobs: Arc<RwLock<HashMap<Uuid, JoinHandle<()>>>>,
     core_tx: UnboundedSender<CoreMessages>,
     rx: UnboundedReceiver<JobSchedulerMessages>,
 }
 
 impl JobScheduler {
-    pub async fn new(
+    pub fn new(
         core_tx: UnboundedSender<CoreMessages>,
         rx: UnboundedReceiver<JobSchedulerMessages>,
-    ) -> Result<Self> {
+    ) -> Self {
         info!("Creating the job scheduler service");
 
-        Ok(JobScheduler {
-            tokio_cron_scheduler: TokioCronScheduler::new().await?,
+        JobScheduler {
+            jobs: Arc::new(RwLock::new(HashMap::new())),
             core_tx,
             rx,
-        })
+        }
     }
 
     #[hotpath::measure]
-    pub async fn start(mut self) -> Result<JoinHandle<()>> {
-        self.tokio_cron_scheduler.start().await?;
-
-        Ok(tokio::spawn(async move {
+    pub fn start(mut self) -> JoinHandle<()> {
+        tokio::spawn(async move {
             let mut tasks = Vec::new();
 
             while let Some(message) = self.rx.recv().await {
                 match message {
                     JobSchedulerMessages::AddJob(plugin_id, cron, result) => {
-                        let tokio_cron_scheduler = self.tokio_cron_scheduler.clone();
+                        let jobs = self.jobs.clone();
                         let core_tx = self.core_tx.clone();
 
                         tasks.push(tokio::spawn(async move {
                             result
-                                .send(
-                                    Self::add_job(tokio_cron_scheduler, core_tx, plugin_id, cron)
-                                        .await,
-                                )
+                                .send(Self::add_job(jobs, core_tx, plugin_id, cron).await)
                                 .unwrap();
                         }));
                     }
                     JobSchedulerMessages::RemoveJob(uuid, result) => {
-                        let tokio_cron_scheduler = self.tokio_cron_scheduler.clone();
+                        let jobs = self.jobs.clone();
 
                         tasks.push(tokio::spawn(async move {
-                            result
-                                .send(Self::remove_job(tokio_cron_scheduler, uuid).await)
-                                .unwrap();
+                            result.send(Self::remove_job(jobs, uuid).await).unwrap();
                         }));
                     }
                 }
@@ -72,12 +72,12 @@ impl JobScheduler {
                 task.await.unwrap();
             }
 
-            self.tokio_cron_scheduler.shutdown().await.unwrap();
-        }))
+            self.shutdown().await;
+        })
     }
 
     async fn add_job(
-        tokio_cron_scheduler: TokioCronScheduler,
+        jobs: Arc<RwLock<HashMap<Uuid, JoinHandle<()>>>>,
         core_tx: UnboundedSender<CoreMessages>,
         plugin_id: Uuid,
         cron: String,
@@ -86,24 +86,51 @@ impl JobScheduler {
             "Scheduled Job at {cron} cron from the {plugin_id} plugin requested to be registered"
         );
 
-        let job = Job::new_async_tz(cron.clone(), chrono::Local, move |job_id, _lock| {
-            let core_tx = core_tx.clone();
+        let id = Uuid::new_v4();
 
-            Box::pin(async move {
-                core_tx
-                    .send(CoreMessages::Runtime(RuntimeMessages::JobScheduler(
-                        RuntimeMessagesJobScheduler::CallScheduledJob(plugin_id, job_id),
-                    )))
-                    .unwrap();
-            })
-        })?;
+        let schedule = Schedule::from_str(&cron)?;
 
-        Ok(tokio_cron_scheduler.add(job).await?)
+        let task = tokio::spawn(async move {
+            for datetime in schedule.upcoming(Utc) {
+                let Ok(duration) = datetime.signed_duration_since(Local::now()).to_std() else {
+                    error!(
+                        "The sleep duration for the {id} scheduled job was out of range: {datetime}"
+                    );
+                    break;
+                };
+
+                tokio::time::sleep_until(Instant::now() + duration).await;
+
+                let _ = core_tx.send(CoreMessages::Runtime(RuntimeMessages::JobScheduler(
+                    RuntimeMessagesJobScheduler::CallScheduledJob(plugin_id, id),
+                )));
+            }
+        });
+
+        jobs.write().await.insert(id, task);
+
+        Ok(id)
     }
 
-    async fn remove_job(tokio_cron_scheduler: TokioCronScheduler, uuid: Uuid) -> Result<()> {
-        info!("Removing scheduled Job {uuid}");
+    async fn remove_job(jobs: Arc<RwLock<HashMap<Uuid, JoinHandle<()>>>>, id: Uuid) -> Result<()> {
+        info!("Removing scheduled job {id}");
 
-        Ok(tokio_cron_scheduler.remove(&uuid).await?)
+        if let Some(job) = jobs.write().await.remove(&id) {
+            job.abort();
+
+            let _ = job.await;
+
+            return Ok(());
+        }
+
+        bail!("No job with this id was found");
+    }
+
+    async fn shutdown(&self) {
+        for job in self.jobs.write().await.drain() {
+            job.1.abort();
+
+            let _ = job.1.await;
+        }
     }
 }

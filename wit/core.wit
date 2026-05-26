@@ -96,7 +96,7 @@ interface core-import-functions {
 
     dependency-function: func(registry-id: string, plugin-id: string, function-id: string, params: list<u8>) -> result<list<u8>, host-error>;
 
-    unload: func(reason: string);
+    remove: func(reason: string);
     shutdown: func(restart: bool) -> result<_, host-error>;
 }
 

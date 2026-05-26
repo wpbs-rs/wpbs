@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 /* Copyright © 2026 Eduard Smet */
 
-use std::{str::FromStr, sync::Arc};
+use std::{collections::HashSet, str::FromStr, sync::Arc};
 
 use tokio::sync::{mpsc::UnboundedSender, oneshot::channel};
 use tracing::{debug, error};
@@ -11,7 +11,9 @@ use uuid::Uuid;
 
 use crate::{
     database::Keyspaces,
-    runtime::plugins::wpbs::plugin::discord_export_types::DiscordEvents,
+    runtime::plugins::wpbs::plugin::{
+        discord_export_types::DiscordEvents, discord_import_types::DiscordEventKinds,
+    },
     services::discord::Discord,
     utils::channels::{CoreMessages, DatabaseMessages, RuntimeMessages, RuntimeMessagesDiscord},
 };
@@ -120,7 +122,7 @@ impl Discord {
             Event::MessageCreate(message_create) => {
                 Self::handle_basic_event(
                     core_tx,
-                    "MESSAGE_CREATE",
+                    DiscordEventKinds::MessageCreate.into(),
                     DiscordEvents::MessageCreate(sonic_rs::to_string(&message_create).unwrap()),
                 )
                 .await;
@@ -128,7 +130,7 @@ impl Discord {
             Event::ThreadCreate(thread_create) => {
                 Self::handle_basic_event(
                     core_tx,
-                    "THREAD_CREATE",
+                    DiscordEventKinds::ThreadCreate.into(),
                     DiscordEvents::ThreadCreate(sonic_rs::to_string(&thread_create).unwrap()),
                 )
                 .await;
@@ -136,7 +138,7 @@ impl Discord {
             Event::ThreadDelete(thread_delete) => {
                 Self::handle_basic_event(
                     core_tx,
-                    "THREAD_DELETE",
+                    DiscordEventKinds::ThreadDelete.into(),
                     DiscordEvents::ThreadDelete(sonic_rs::to_string(&thread_delete).unwrap()),
                 )
                 .await;
@@ -144,7 +146,7 @@ impl Discord {
             Event::ThreadListSync(thread_list_sync) => {
                 Self::handle_basic_event(
                     core_tx,
-                    "THREAD_LIST_SYNC",
+                    DiscordEventKinds::ThreadListSync.into(),
                     DiscordEvents::ThreadListSync(sonic_rs::to_string(&thread_list_sync).unwrap()),
                 )
                 .await;
@@ -152,7 +154,7 @@ impl Discord {
             Event::ThreadMemberUpdate(thread_member_update) => {
                 Self::handle_basic_event(
                     core_tx,
-                    "THREAD_MEMBER_UPDATE",
+                    DiscordEventKinds::ThreadMemberUpdate.into(),
                     DiscordEvents::ThreadMemberUpdate(
                         sonic_rs::to_string(&thread_member_update).unwrap(),
                     ),
@@ -162,7 +164,7 @@ impl Discord {
             Event::ThreadMembersUpdate(thread_members_update) => {
                 Self::handle_basic_event(
                     core_tx,
-                    "THREAD_MEMBERS_UPDATE",
+                    DiscordEventKinds::ThreadMembersUpdate.into(),
                     DiscordEvents::ThreadMembersUpdate(
                         sonic_rs::to_string(&thread_members_update).unwrap(),
                     ),
@@ -172,7 +174,7 @@ impl Discord {
             Event::ThreadUpdate(thread_update) => {
                 Self::handle_basic_event(
                     core_tx,
-                    "THREAD_UPDATE",
+                    DiscordEventKinds::ThreadUpdate.into(),
                     DiscordEvents::ThreadUpdate(sonic_rs::to_string(&thread_update).unwrap()),
                 )
                 .await;
@@ -186,7 +188,7 @@ impl Discord {
 
     pub async fn handle_basic_event(
         core_tx: Arc<UnboundedSender<CoreMessages>>,
-        key: &str,
+        key: Vec<u8>,
         event: DiscordEvents,
     ) {
         let (sender, receiver) = channel();
@@ -194,7 +196,7 @@ impl Discord {
         core_tx
             .send(CoreMessages::DatabaseModule(DatabaseMessages::Get(
                 Keyspaces::DiscordEvents,
-                key.as_bytes().to_vec(),
+                key,
                 sender,
             )))
             .unwrap();
@@ -203,10 +205,10 @@ impl Discord {
             return;
         };
 
-        let plugin_ids_bytes = sonic_rs::from_slice::<Vec<Vec<u8>>>(&response_bytes).unwrap();
+        let plugin_ids_bytes = sonic_rs::from_slice::<HashSet<String>>(&response_bytes).unwrap();
 
         for plugin_id_bytes in plugin_ids_bytes {
-            let plugin_id = Uuid::from_slice(&plugin_id_bytes).unwrap();
+            let plugin_id = Uuid::parse_str(&plugin_id_bytes).unwrap();
 
             core_tx
                 .send(CoreMessages::Runtime(RuntimeMessages::Discord(

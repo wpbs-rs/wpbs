@@ -21,7 +21,6 @@ pub struct ConfigDiscordSettings {
 }
 
 #[derive(Deserialize, PartialEq)]
-#[serde(untagged)]
 pub enum ConfigDiscordIntents {
     All,
     Guilds,

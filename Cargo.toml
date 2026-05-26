@@ -16,6 +16,7 @@ anyhow = "1.0.102"
 bytes = "1.11.1"
 chrono = "0.4.44"
 clap = { version = "4.6.1", features = ["derive"] }
+cron = "0.16.0"
 dotenvy = "0.15.7"
 fjall = "3.1.4"
 hotpath = "0.16.1"
@@ -27,7 +28,6 @@ serde = "1.0.228"
 serde_yaml_ng = "0.10.0" # Should replace this with a better maintained YAML 1.2 supporting alternative
 sonic-rs = "0.5.8"
 tokio = { version = "1.52.3", features = ["full"] }
-tokio-cron-scheduler = { version = "0.15.1", features = ["english"] }
 tokio-util = "0.7.18"
 tracing = "0.1.44"
 tracing-subscriber = "0.3.23"

@@ -9,7 +9,7 @@ interface discord-import-types {
     use core-types.{host-error, json};
     use discord-types.{snowflake};
 
-    flags discord-event-kinds {
+    enum discord-event-kinds {
         message-create,
         interaction-create,
         thread-create,
@@ -20,12 +20,13 @@ interface discord-import-types {
         thread-update,
     }
 
+    // Registrations
     record discord-registrations {
         events: option<discord-registrations-events>,
         interactions: option<discord-registrations-interactions>,
     }
 
-    type discord-registrations-events = discord-event-kinds;
+    type discord-registrations-events = list<discord-event-kinds>;
 
     record discord-registrations-interactions {
         application-commands: option<list<json>>,
@@ -33,10 +34,14 @@ interface discord-import-types {
         modals: option<u16>,
     }
 
+    // Registrations Result
     record discord-registrations-result {
-        events: option<result<_, host-error>>,
+        events: option<discord-registrations-events-result>,
         interactions: option<discord-registrations-interactions-result>,
     }
+
+    // Map keys can only be component model primitives
+    type discord-registrations-events-result = list<tuple<discord-event-kinds, result<_, host-error>>>;
 
     record discord-registrations-interactions-result {
         application-commands: option<result<_, host-error>>,
@@ -44,12 +49,13 @@ interface discord-import-types {
         modals: option<result<list<string>, host-error>>,
     }
 
+    // Deregistrations
     record discord-deregistrations {
         events: option<discord-deregistrations-events>,
         interactions: option<discord-deregistrations-interactions>,
     }
 
-    type discord-deregistrations-events = discord-event-kinds;
+    type discord-deregistrations-events = list<discord-event-kinds>;
 
     record discord-deregistrations-interactions {
         application-commands: option<list<string>>,
@@ -57,10 +63,13 @@ interface discord-import-types {
         modals: option<list<string>>,
     }
 
+    // Deregistrations Result
     record discord-deregistrations-result {
-        events: option<result<_, host-error>>,
+        events: option<discord-deregistrations-events-result>,
         interactions: option<discord-deregistrations-interactions-result>
     }
+
+    type discord-deregistrations-events-result = list<tuple<discord-event-kinds, result<_, host-error>>>;
 
     record discord-deregistrations-interactions-result {
         application-commands: option<result<list<string>, host-error>>,
@@ -68,6 +77,7 @@ interface discord-import-types {
         modals: option<result<list<string>, host-error>>,
     }
 
+    // Discord Requests
     variant discord-requests {
         // Gateway commands
         request-guild-members(tuple<snowflake, json>),
@@ -105,6 +115,7 @@ interface discord-import-types {
 
     type form = list<u8>;
 
+    // Discord Responses
     type discord-responses = json;
 }
 
@@ -112,8 +123,10 @@ interface discord-export-types {
     use core-types.{json, plugin-error};
     use discord-types.{snowflake};
 
+    // Discord Application Command Registrations Result
     type discord-registrations-result-application-commands = map<string, result<snowflake, plugin-error>>;
 
+    // Discord Events
     variant discord-events {
         interaction-create(json),
         message-create(json),
