@@ -28,10 +28,10 @@ serde = "1.0.228"
 serde_yaml_ng = "0.10.0" # Should replace this with a better maintained YAML 1.2 supporting alternative
 sonic-rs = "0.5.8"
 tokio = { version = "1.52.3", features = ["full"] }
-tokio-util = "0.7.18"
+tokio-util = { version = "0.7.18", features = ["rt"] }
 tracing = "0.1.44"
-tracing-subscriber = "0.3.23"
 tracing-appender = "0.2.5"
+tracing-subscriber = "0.3.23"
 twilight-cache-inmemory = { git = "https://github.com/celarye/twilight/", branch = "feat/form-buffer" }
 twilight-gateway = { git = "https://github.com/celarye/twilight/", branch = "feat/form-buffer", features = [
   "simd-json",

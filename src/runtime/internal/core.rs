@@ -62,7 +62,7 @@ impl CoreImportFunctionsHost for InternalRuntime {
         self.core_tx
             .send(CoreMessages::DatabaseModule(DatabaseMessages::Get(
                 Keyspaces::PluginStore,
-                key.as_bytes().to_vec(),
+                key.into_bytes(),
                 sender,
             )))
             .unwrap();
@@ -82,7 +82,7 @@ impl CoreImportFunctionsHost for InternalRuntime {
         self.core_tx
             .send(CoreMessages::DatabaseModule(DatabaseMessages::Insert(
                 Keyspaces::PluginStore,
-                key.as_bytes().to_vec(),
+                key.into_bytes(),
                 value,
                 sender,
             )))
@@ -698,7 +698,7 @@ impl CoreImportFunctionsHost for InternalRuntime {
     async fn remove(&mut self, reason: String) {
         self.core_tx
             .send(CoreMessages::Runtime(RuntimeMessages::Core(
-                RuntimeMessagesCore::UnloadPlugin(self.metadata.plugin_id),
+                RuntimeMessagesCore::RemovePlugin(self.metadata.plugin_id),
             )))
             .unwrap();
 

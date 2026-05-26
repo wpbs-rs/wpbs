@@ -1,13 +1,12 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 /* Copyright © 2026 Eduard Smet */
 
-mod builder;
 mod internal;
 pub mod plugins;
 
 use std::{collections::HashMap, fs, path::PathBuf, sync::Arc};
 
-use anyhow::{Result, bail};
+use anyhow::Result;
 use semver::Version;
 use tokio::{
     sync::{
@@ -17,18 +16,19 @@ use tokio::{
     },
     task::JoinHandle,
 };
+use tokio_util::task::TaskTracker;
 use tracing::{error, info};
 use uuid::Uuid;
-use wasmtime::{Store, component::Component};
+use wasmtime::component::Component;
 
 use crate::{
     config::plugins::permissions::PluginPermissions,
     registry::plugins::AvailablePlugin,
     runtime::{
-        builder::PluginBuilder,
         internal::InternalRuntime,
         plugins::{
-            Plugin, PluginPre,
+            PluginPre,
+            builder::PluginBuilder,
             wpbs::plugin::{
                 core_types::PluginError,
                 discord_export_types::{
@@ -83,7 +83,7 @@ impl Runtime {
     #[hotpath::measure]
     pub fn start(mut self) -> JoinHandle<()> {
         tokio::spawn(async move {
-            let mut tasks = Vec::new();
+            let task_tracker = TaskTracker::new();
 
             while let Some(message) = self.rx.recv().await {
                 match message {
@@ -97,24 +97,24 @@ impl Runtime {
                             let plugins = self.plugins.clone();
                             let plugin_builder = self.plugin_builder.clone();
 
-                            tasks.push(tokio::spawn(Self::call_dependency_function(
+                            task_tracker.spawn(Self::call_dependency_function(
                                 plugins,
                                 plugin_builder,
                                 plugin_id,
                                 function_id,
                                 params,
                                 response_sender,
-                            )));
+                            ));
                         }
-                        RuntimeMessagesCore::UnloadPlugin(plugin_id) => {
+                        RuntimeMessagesCore::RemovePlugin(plugin_id) => {
                             let plugins = self.plugins.clone();
                             let plugin_builder = self.plugin_builder.clone();
 
-                            tasks.push(tokio::spawn(async move {
+                            task_tracker.spawn(async move {
                                 let plugin = plugins.write().await.remove(&plugin_id).unwrap();
                                 // TODO: Delay calling shutdown until all plugin calls have finished.
                                 Self::call_shutdown(plugin_builder, plugin_id, plugin).await;
-                            }));
+                            });
                         }
                     },
                     RuntimeMessages::JobScheduler(job_scheduler_message) => {
@@ -123,12 +123,12 @@ impl Runtime {
                                 let plugins = self.plugins.clone();
                                 let plugin_builder = self.plugin_builder.clone();
 
-                                tasks.push(tokio::spawn(Self::call_scheduled_job(
+                                task_tracker.spawn(Self::call_scheduled_job(
                                     plugins,
                                     plugin_builder,
                                     plugin_id,
                                     job_id,
-                                )));
+                                ));
                             }
                         }
                     }
@@ -140,31 +140,30 @@ impl Runtime {
                             let plugins = self.plugins.clone();
                             let plugin_builder = self.plugin_builder.clone();
 
-                            tasks.push(tokio::spawn(Self::call_discord_application_commands(
+                            task_tracker.spawn(Self::call_discord_application_commands(
                                 plugins,
                                 plugin_builder,
                                 plugin_id,
                                 results,
-                            )));
+                            ));
                         }
                         RuntimeMessagesDiscord::CallDiscordEvent(plugin_id, event) => {
                             let plugins = self.plugins.clone();
                             let plugin_builder = self.plugin_builder.clone();
 
-                            tasks.push(tokio::spawn(Self::call_discord_event(
+                            task_tracker.spawn(Self::call_discord_event(
                                 plugins,
                                 plugin_builder,
                                 plugin_id,
                                 event,
-                            )));
+                            ));
                         }
                     },
                 }
             }
 
-            for task in tasks.drain(..) {
-                task.await.unwrap();
-            }
+            task_tracker.close();
+            task_tracker.wait().await;
 
             self.shutdown().await;
         })
@@ -327,29 +326,6 @@ impl Runtime {
         Ok(())
     }
 
-    #[hotpath::measure]
-    async fn instantiate(
-        plugins: Arc<RwLock<HashMap<Uuid, RuntimePlugin>>>,
-        plugin_builder: Arc<PluginBuilder>,
-        plugin_id: Uuid,
-    ) -> Result<(Plugin, Store<InternalRuntime>)> {
-        if let Some(plugin) = plugins.read().await.get(&plugin_id) {
-            let mut store = plugin_builder.store_builder(plugin_id, &plugin.state_pre);
-
-            match plugin.plugin_pre.instantiate_async(&mut store).await {
-                Ok(instance) => Ok((instance, store)),
-                Err(err) => {
-                    bail!(
-                        "Failed to instantiate the {} plugin, error: {err}",
-                        plugin.state_pre.user_id
-                    );
-                }
-            }
-        } else {
-            bail!("Runtime has no plugin with the provided ID: {plugin_id}");
-        }
-    }
-
     // TODO: Remove trapped plugins
 
     async fn call_dependency_function(
@@ -360,7 +336,7 @@ impl Runtime {
         params: Vec<u8>,
         response_sender: Sender<Result<Vec<u8>, PluginError>>,
     ) {
-        let (instance, store) = match Self::instantiate(plugins, plugin_builder, plugin_id).await {
+        let (instance, store) = match plugin_builder.instantiate(plugins, plugin_id).await {
             Ok((instance, store)) => (instance, store),
             Err(err) => {
                 error!("{err}");
@@ -392,7 +368,7 @@ impl Runtime {
         plugin_id: Uuid,
         job_id: Uuid,
     ) {
-        let (instance, store) = match Self::instantiate(plugins, plugin_builder, plugin_id).await {
+        let (instance, store) = match plugin_builder.instantiate(plugins, plugin_id).await {
             Ok((instance, store)) => (instance, store),
             Err(err) => {
                 error!("{err}");
@@ -422,7 +398,7 @@ impl Runtime {
         plugin_id: Uuid,
         results: DiscordRegistrationsResultApplicationCommands,
     ) {
-        let (instance, store) = match Self::instantiate(plugins, plugin_builder, plugin_id).await {
+        let (instance, store) = match plugin_builder.instantiate(plugins, plugin_id).await {
             Ok((instance, store)) => (instance, store),
             Err(err) => {
                 error!("{err}");
@@ -445,7 +421,7 @@ impl Runtime {
         plugin_id: Uuid,
         event: DiscordEvents,
     ) {
-        let (instance, store) = match Self::instantiate(plugins, plugin_builder, plugin_id).await {
+        let (instance, store) = match plugin_builder.instantiate(plugins, plugin_id).await {
             Ok((instance, store)) => (instance, store),
             Err(err) => {
                 error!("{err}");
@@ -520,5 +496,10 @@ impl Runtime {
         for task in tasks.drain(..) {
             task.await.unwrap();
         }
+
+        Arc::into_inner(self.plugin_builder)
+            .unwrap()
+            .shutdown()
+            .await;
     }
 }

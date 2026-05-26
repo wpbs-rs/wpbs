@@ -126,7 +126,7 @@ impl Discord {
             }
             DiscordRequests::CreateBan((guild_id, user_id, body)) => {
                 match Request::builder(&Route::CreateBan { guild_id, user_id })
-                    .json(&body)
+                    .body(body.into_bytes())
                     .build()
                 {
                     Ok(request) => Some(request),
@@ -137,11 +137,11 @@ impl Discord {
                     }
                 }
             }
-            DiscordRequests::CreateForumThread((channel_id, content)) => {
+            DiscordRequests::CreateForumThread((channel_id, body)) => {
                 let request_builder = Request::builder(&Route::CreateForumThread { channel_id });
 
-                let request_builder = match content {
-                    Body::Json(bytes) => request_builder.json(&bytes),
+                let request_builder = match body {
+                    Body::Json(bytes) => request_builder.body(bytes.into_bytes()),
                     Body::Form(buffer) => match request_builder.multipart(buffer) {
                         Ok(request) => request,
                         Err(err) => {
@@ -161,11 +161,11 @@ impl Discord {
                     }
                 }
             }
-            DiscordRequests::CreateMessage((channel_id, content)) => {
+            DiscordRequests::CreateMessage((channel_id, body)) => {
                 let request_builder = Request::builder(&Route::CreateMessage { channel_id });
 
-                let request_builder = match content {
-                    Body::Json(bytes) => request_builder.json(&bytes),
+                let request_builder = match body {
+                    Body::Json(bytes) => request_builder.body(bytes.into_bytes()),
                     Body::Form(buffer) => match request_builder.multipart(buffer) {
                         Ok(request) => request,
                         Err(err) => {

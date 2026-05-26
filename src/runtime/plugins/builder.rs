@@ -1,8 +1,10 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 /* Copyright © 2026 Eduard Smet */
 
-use std::time::Duration;
+use std::{collections::HashMap, sync::Arc, time::Duration};
 
+use anyhow::{Result, bail};
+use tokio::{sync::RwLock, task::JoinHandle};
 use uuid::Uuid;
 use wasmtime::{
     Config, Engine, EngineWeak, Store,
@@ -12,7 +14,7 @@ use wasmtime_wasi::{DirPerms, FilePerms, ResourceTable, WasiCtxBuilder};
 use wasmtime_wasi_http::WasiHttpCtx;
 
 use crate::runtime::{
-    RuntimePluginStatePre,
+    RuntimePlugin, RuntimePluginStatePre,
     internal::{InternalRuntime, InternalRuntimeMetadata},
     plugins::Plugin,
 };
@@ -24,6 +26,7 @@ static INCREMENT_EPOCH_INTERVAL_SECS: u64 = 5;
 pub struct PluginBuilder {
     pub engine: Engine,
     pub linker: Linker<InternalRuntime>,
+    epoch_handler: JoinHandle<()>,
 }
 
 impl PluginBuilder {
@@ -34,8 +37,7 @@ impl PluginBuilder {
 
         let engine = Engine::new(&config).unwrap();
 
-        // NOTE: The need for this can be discussed
-        Self::engine_increment_epoch(engine.weak());
+        let epoch_handler = Self::engine_increment_epoch(engine.weak());
 
         // NOTE: Linker notes
         // - Better way to link dependency plugins (not yet supported with the component model)
@@ -51,7 +53,11 @@ impl PluginBuilder {
         )
         .unwrap();
 
-        PluginBuilder { engine, linker }
+        PluginBuilder {
+            engine,
+            linker,
+            epoch_handler,
+        }
     }
 
     pub fn store_builder(
@@ -94,15 +100,43 @@ impl PluginBuilder {
         store
     }
 
-    fn engine_increment_epoch(engine_weak: EngineWeak) {
+    #[hotpath::measure]
+    pub async fn instantiate(
+        &self,
+        plugins: Arc<RwLock<HashMap<Uuid, RuntimePlugin>>>,
+        plugin_id: Uuid,
+    ) -> Result<(Plugin, Store<InternalRuntime>)> {
+        if let Some(plugin) = plugins.read().await.get(&plugin_id) {
+            let mut store = self.store_builder(plugin_id, &plugin.state_pre);
+
+            match plugin.plugin_pre.instantiate_async(&mut store).await {
+                Ok(instance) => Ok((instance, store)),
+                Err(err) => {
+                    bail!(
+                        "Failed to instantiate the {} plugin, error: {err}",
+                        plugin.state_pre.user_id
+                    );
+                }
+            }
+        } else {
+            bail!("Runtime has no plugin with the provided ID: {plugin_id}");
+        }
+    }
+
+    fn engine_increment_epoch(engine_weak: EngineWeak) -> JoinHandle<()> {
         tokio::spawn(async move {
             loop {
                 if let Some(engine) = engine_weak.upgrade() {
                     engine.increment_epoch();
-                }
+                };
 
                 tokio::time::sleep(Duration::from_secs(INCREMENT_EPOCH_INTERVAL_SECS)).await;
             }
-        });
+        })
+    }
+
+    pub async fn shutdown(self) {
+        self.epoch_handler.abort();
+        let _ = self.epoch_handler.await;
     }
 }

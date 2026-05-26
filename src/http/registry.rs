@@ -29,7 +29,7 @@ impl HttpClient {
             .bytes()
             .await
             .context("Something went wrong while getting the raw bytes from the response")?
-            .to_vec())
+            .into())
     }
 
     fn parse_url(registry: &str, path: &str) -> Result<Url, ParseError> {

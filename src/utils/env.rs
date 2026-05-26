@@ -4,7 +4,6 @@
 use std::{env, path::Path};
 
 use anyhow::{Context, Result, bail};
-use dotenvy;
 use tracing::{debug, info};
 
 use crate::config::services::ConfigServices;

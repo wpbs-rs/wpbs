@@ -15,6 +15,3 @@ updates:
       major:
         update-types:
           - major
-      pre-release:
-        patterns:
-          - "*-*"

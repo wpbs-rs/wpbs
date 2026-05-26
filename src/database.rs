@@ -101,7 +101,11 @@ pub async fn range(
     let keyspace = database.keyspace(get_keyspace(keyspace), KeyspaceCreateOptions::default)?;
 
     if inclusive {
-        return Ok(keyspace.range(range_start..=range_end));
+        return Ok(
+            spawn_blocking(move || keyspace.range(range_start..=range_end))
+                .await
+                .unwrap(),
+        );
     }
 
     Ok(

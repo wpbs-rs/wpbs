@@ -14,6 +14,7 @@ use tokio::{
     task::JoinHandle,
     time::Instant,
 };
+use tokio_util::task::TaskTracker;
 use tracing::{error, info};
 use uuid::Uuid;
 
@@ -44,7 +45,7 @@ impl JobScheduler {
     #[hotpath::measure]
     pub fn start(mut self) -> JoinHandle<()> {
         tokio::spawn(async move {
-            let mut tasks = Vec::new();
+            let task_tracker = TaskTracker::new();
 
             while let Some(message) = self.rx.recv().await {
                 match message {
@@ -52,25 +53,24 @@ impl JobScheduler {
                         let jobs = self.jobs.clone();
                         let core_tx = self.core_tx.clone();
 
-                        tasks.push(tokio::spawn(async move {
+                        task_tracker.spawn(async move {
                             result
                                 .send(Self::add_job(jobs, core_tx, plugin_id, cron).await)
                                 .unwrap();
-                        }));
+                        });
                     }
                     JobSchedulerMessages::RemoveJob(uuid, result) => {
                         let jobs = self.jobs.clone();
 
-                        tasks.push(tokio::spawn(async move {
+                        task_tracker.spawn(async move {
                             result.send(Self::remove_job(jobs, uuid).await).unwrap();
-                        }));
+                        });
                     }
                 }
             }
 
-            for task in tasks.drain(..) {
-                task.await.unwrap();
-            }
+            task_tracker.close();
+            task_tracker.wait().await;
 
             self.shutdown().await;
         })

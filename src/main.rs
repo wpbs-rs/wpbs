@@ -181,13 +181,17 @@ fn message_handler(
                     }
                 }
                 CoreMessages::Shutdown(shutdown_kind) => {
-                    shutdown_task = Some(tokio::spawn(shutdown(
+                    let shutdown = tokio::spawn(shutdown(
                         job_scheduler_tx.take(),
                         discord_tx.take(),
                         runtime_tx.take(),
                         shutdown_signal_listener.take(),
                         shutdown_kind,
-                    )));
+                    ));
+
+                    if shutdown_task.is_none() {
+                        shutdown_task = Some(shutdown);
+                    }
                 }
             }
         }
@@ -277,7 +281,9 @@ async fn shutdown(
         let mut shutdown_guard = SHUTDOWN.write().await;
 
         if let Some(shutdown_value) = *shutdown_guard {
-            if shutdown_kind != Shutdown::SigInt || shutdown_value == Shutdown::SigInt {
+            if (shutdown_value != Shutdown::SigInt && shutdown_kind == Shutdown::SigInt)
+                || (shutdown_value == Shutdown::Restart && shutdown_kind == Shutdown::Normal)
+            {
                 let _ = shutdown_guard.insert(shutdown_kind);
             }
 
@@ -303,7 +309,8 @@ async fn shutdown(
         discord.await.unwrap();
     }
 
-    shutdown_signal_listener.unwrap().abort();
+    shutdown_signal_listener.as_ref().unwrap().abort();
+    let _ = shutdown_signal_listener.unwrap().await;
 }
 
 fn restart() -> Result<u8> {

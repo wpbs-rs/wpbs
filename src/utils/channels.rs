@@ -62,7 +62,7 @@ pub enum RuntimeMessagesCore {
         Vec<u8>,
         OSSender<Result<Vec<u8>, PluginError>>,
     ),
-    UnloadPlugin(Uuid),
+    RemovePlugin(Uuid),
 }
 
 pub enum RuntimeMessagesJobScheduler {

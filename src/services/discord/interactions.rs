@@ -232,8 +232,8 @@ impl Discord {
                     core_tx
                         .send(CoreMessages::DatabaseModule(DatabaseMessages::Insert(
                             Keyspaces::DiscordApplicationCommands,
-                            command.1.name.as_bytes().to_vec(),
-                            command_id.to_string().as_bytes().to_vec(),
+                            command_id.to_string().into_bytes(),
+                            command.0.as_bytes().to_vec(),
                             result_sender,
                         )))
                         .unwrap();
@@ -270,8 +270,8 @@ impl Discord {
                         core_tx
                             .send(CoreMessages::DatabaseModule(DatabaseMessages::Insert(
                                 Keyspaces::DiscordApplicationCommands,
-                                command.1.name.as_bytes().to_vec(),
-                                command_id.to_string().as_bytes().to_vec(),
+                                command_id.to_string().into_bytes(),
+                                command.0.as_bytes().to_vec(),
                                 result_sender,
                             )))
                             .unwrap();
