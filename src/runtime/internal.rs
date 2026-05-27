@@ -26,11 +26,10 @@ pub struct InternalRuntime {
 }
 
 pub struct InternalRuntimeMetadata {
-    pub plugin_id: Uuid,
+    pub plugin_uuid: Uuid,
     pub registry_id: Arc<String>,
-    pub id: Arc<String>,
+    pub plugin_id: Arc<String>,
     pub user_id: Arc<String>,
-    #[allow(unused)]
     pub version: Arc<Version>,
     pub permissions: Arc<PluginPermissions>,
 }

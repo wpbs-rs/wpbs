@@ -166,6 +166,7 @@ impl Discord {
 
                 let request_builder = match body {
                     Body::Json(bytes) => request_builder.body(bytes.into_bytes()),
+                    // TODO: Fix, Twilight implementation is broken at this moment
                     Body::Form(buffer) => match request_builder.multipart(buffer) {
                         Ok(request) => request,
                         Err(err) => {
@@ -187,7 +188,7 @@ impl Discord {
             }
             DiscordRequests::CreateThread((channel_id, body)) => {
                 match Request::builder(&Route::CreateThread { channel_id })
-                    .json(&body)
+                    .body(body.into_bytes())
                     .build()
                 {
                     Ok(request) => Some(request),
@@ -203,7 +204,7 @@ impl Discord {
                     channel_id,
                     message_id,
                 })
-                .json(&body)
+                .body(body.into_bytes())
                 .build()
                 {
                     Ok(request) => Some(request),
@@ -340,7 +341,7 @@ impl Discord {
                     interaction_token: &interaction_token,
                     with_response,
                 })
-                .json(&body)
+                .body(body.into_bytes())
                 .build()
                 {
                     Ok(request) => Some(request),
@@ -388,7 +389,7 @@ impl Discord {
             }
             DiscordRequests::UpdateMember((guild_id, user_id, body)) => {
                 match Request::builder(&Route::UpdateMember { guild_id, user_id })
-                    .json(&body)
+                    .body(body.into_bytes())
                     .build()
                 {
                     Ok(request) => Some(request),
@@ -408,7 +409,7 @@ impl Discord {
                     application_id,
                     interaction_token: &interaction_token,
                 })
-                .json(&body)
+                .body(body.into_bytes())
                 .build()
                 {
                     Ok(request) => Some(request),

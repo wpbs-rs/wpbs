@@ -61,7 +61,7 @@ pub struct RuntimePluginStatePre {
     pub version: Arc<Version>,
     pub permissions: Arc<PluginPermissions>,
     pub environment: Arc<[(String, String)]>,
-    pub workspace_directory: Arc<PathBuf>,
+    pub workspace_directory_path: Arc<PathBuf>,
     pub core_tx: UnboundedSender<CoreMessages>,
 }
 
@@ -81,7 +81,7 @@ impl Runtime {
     }
 
     #[hotpath::measure]
-    pub fn start(mut self) -> JoinHandle<()> {
+    pub fn run(mut self) -> JoinHandle<()> {
         tokio::spawn(async move {
             let task_tracker = TaskTracker::new();
 
@@ -111,9 +111,10 @@ impl Runtime {
                             let plugin_builder = self.plugin_builder.clone();
 
                             task_tracker.spawn(async move {
-                                let plugin = plugins.write().await.remove(&plugin_id).unwrap();
-                                // TODO: Delay calling shutdown until all plugin calls have finished.
-                                Self::call_shutdown(plugin_builder, plugin_id, plugin).await;
+                                if let Some(plugin) = plugins.write().await.remove(&plugin_id) {
+                                    // TODO: Delay calling shutdown until all plugin calls have finished.
+                                    Self::call_shutdown(plugin_builder, plugin_id, plugin).await;
+                                }
                             });
                         }
                     },
@@ -176,11 +177,11 @@ impl Runtime {
         &self,
         available_plugins: Vec<(Uuid, AvailablePlugin)>,
         core_tx: UnboundedSender<CoreMessages>,
-        plugin_directory: PathBuf,
+        plugins_directory_path: PathBuf,
     ) -> Result<()> {
         info!("Initializing the plugins");
 
-        let plugin_directory = Arc::new(plugin_directory);
+        let plugins_directory_path = Arc::new(plugins_directory_path);
 
         let mut tasks = Vec::new();
 
@@ -188,134 +189,134 @@ impl Runtime {
             let plugins = self.plugins.clone();
             let plugin_builder = self.plugin_builder.clone();
             let core_tx = core_tx.clone();
-            let plugin_directory = plugin_directory.clone();
+            let plugins_directory_path = plugins_directory_path.clone();
 
             tasks.push(tokio::spawn(async move {
-            let plugin_user_id = plugin_metadata.user_id.clone();
-            let plugin_settings = plugin_metadata.settings.clone();
+                let plugin_user_id = plugin_metadata.user_id.clone();
+                let plugin_settings = plugin_metadata.settings.clone();
 
-            let plugin_directory = plugin_directory
-                .join(&plugin_metadata.registry_id)
-                .join(&plugin_metadata.id)
-                .join(plugin_metadata.version.to_string());
+                let plugin_directory_path = plugins_directory_path
+                    .join(&plugin_metadata.registry_id)
+                    .join(&plugin_metadata.id)
+                    .join(plugin_metadata.version.to_string());
 
-            let bytes = match fs::read(plugin_directory.join("plugin.wasm")) {
-                Ok(bytes) => bytes,
-                Err(err) => {
-                    error!(
-                        "An error occurred while reading the {} plugin file: {err}",
-                        plugin_user_id
-                    );
-                    return;
-                }
-            };
-
-            let component = match Component::new(&plugin_builder.engine, bytes) {
-                Ok(component) => component,
-                Err(err) => {
-                    error!(
-                        "An error occurred while creating a WASI component from the {} plugin: {err}",
-                        plugin_user_id
-                    );
-                    return;
-                }
-            };
-
-            let workspace_plugin_directory = plugin_directory.join("workspace");
-
-            match fs::exists(&workspace_plugin_directory) {
-                Ok(exists) => {
-                    if !exists && let Err(err) = fs::create_dir(&workspace_plugin_directory) {
-                        error!(
-                            "Something went wrong while creating the workspace directory for the {} plugin, error: {err}",
-                            plugin_user_id
-                        );
-                        return;
-                    }
-                }
-                Err(err) => {
-                    error!(
-                        "Something went wrong while checking if the workspace directory of the {} plugin exists, error: {err}",
-                        plugin_user_id
-                    );
-                    return;
-                }
-            }
-
-            let instance_pre = match plugin_builder.linker.instantiate_pre(&component) {
-                Ok(instance_pre) => instance_pre,
-                Err(err) => {
-                    error!(
-                        "The {plugin_user_id} plugin returned an error while pre-instantiating (phase 1): {err}"
-                    );
-                    return;
-                }
-            };
-
-            let plugin_pre = match PluginPre::new(instance_pre) {
-                Ok(plugin_pre) => plugin_pre,
-                Err(err) => {
-                    error!(
-                        "The {plugin_user_id} plugin returned an error while pre-instantiating (phase 2): {err}"
-                    );
-                    return;
-                }
-            };
-
-            let state_pre = RuntimePluginStatePre {
-                registry_id: Arc::new(plugin_metadata.registry_id),
-                id: Arc::new(plugin_metadata.id),
-                user_id: Arc::new(plugin_metadata.user_id),
-                version: Arc::new(plugin_metadata.version),
-                permissions: Arc::new(plugin_metadata.permissions),
-                environment: plugin_metadata
-                    .environment
-                    .into_iter()
-                    .collect::<Arc<[(String, String)]>>(),
-                workspace_directory: Arc::new(workspace_plugin_directory),
-                core_tx,
-            };
-
-            {
-                let mut store = plugin_builder.store_builder(plugin_id, &state_pre);
-
-                let (instance, mut store) = match plugin_pre.instantiate_async(&mut store).await {
-                    Ok(instance) => (instance, store),
+                let bytes = match fs::read(plugin_directory_path.join("plugin.wasm")) {
+                    Ok(bytes) => bytes,
                     Err(err) => {
                         error!(
-                            "Failed to instantiate the {} plugin, error: {err}",
-                            state_pre.user_id
+                            "An error occurred while reading the {} plugin file: {err}",
+                            plugin_user_id
                         );
                         return;
                     }
                 };
 
-                match instance
-                    .wpbs_plugin_core_export_functions()
-                    .call_initialization(&mut store, &sonic_rs::to_string(&plugin_settings).unwrap())
-                    .await
-                {
-                    Ok(init_result) => {
-                        if let Err(err) = init_result {
+                let component = match Component::new(&plugin_builder.engine, bytes) {
+                    Ok(component) => component,
+                    Err(err) => {
+                        error!(
+                            "An error occurred while creating a WASI component from the {} plugin: {err}",
+                            plugin_user_id
+                        );
+                        return;
+                    }
+                };
+
+                let workspace_plugin_directory_path = plugin_directory_path.join("workspace");
+
+                match fs::exists(&workspace_plugin_directory_path) {
+                    Ok(exists) => {
+                        if !exists && let Err(err) = fs::create_dir(&workspace_plugin_directory_path) {
                             error!(
-                                "The {plugin_user_id} plugin returned an error while initializing: {err}"
+                                "Something went wrong while creating the workspace directory for the {} plugin, error: {err}",
+                                plugin_user_id
                             );
                             return;
                         }
                     }
                     Err(err) => {
-                        error!("The {plugin_user_id} plugin experienced a critical error: {err}");
+                        error!(
+                            "Something went wrong while checking if the workspace directory of the {} plugin exists, error: {err}",
+                            plugin_user_id
+                        );
                         return;
                     }
                 }
-            }
 
-            let plugin_context = RuntimePlugin {
-                plugin_pre,
-                state_pre,
-            };
+                let instance_pre = match plugin_builder.linker.instantiate_pre(&component) {
+                    Ok(instance_pre) => instance_pre,
+                    Err(err) => {
+                        error!(
+                            "The {plugin_user_id} plugin returned an error while pre-instantiating (phase 1): {err}"
+                        );
+                        return;
+                    }
+                };
 
-            plugins.write().await.insert(plugin_id, plugin_context);
+                let plugin_pre = match PluginPre::new(instance_pre) {
+                    Ok(plugin_pre) => plugin_pre,
+                    Err(err) => {
+                        error!(
+                            "The {plugin_user_id} plugin returned an error while pre-instantiating (phase 2): {err}"
+                        );
+                        return;
+                    }
+                };
+
+                let state_pre = RuntimePluginStatePre {
+                    registry_id: Arc::new(plugin_metadata.registry_id),
+                    id: Arc::new(plugin_metadata.id),
+                    user_id: Arc::new(plugin_metadata.user_id),
+                    version: Arc::new(plugin_metadata.version),
+                    permissions: Arc::new(plugin_metadata.permissions),
+                    environment: plugin_metadata
+                        .environment
+                        .into_iter()
+                        .collect::<Arc<[(String, String)]>>(),
+                    workspace_directory_path: Arc::new(workspace_plugin_directory_path),
+                    core_tx,
+                };
+
+                {
+                    let mut store = plugin_builder.store_builder(plugin_id, &state_pre);
+
+                    let (instance, mut store) = match plugin_pre.instantiate_async(&mut store).await {
+                        Ok(instance) => (instance, store),
+                        Err(err) => {
+                            error!(
+                                "Failed to instantiate the {} plugin, error: {err}",
+                                state_pre.user_id
+                            );
+                            return;
+                        }
+                    };
+
+                    match instance
+                        .wpbs_plugin_core_export_functions()
+                        .call_initialization(&mut store, &sonic_rs::to_string(&plugin_settings).unwrap())
+                        .await
+                    {
+                        Ok(init_result) => {
+                            if let Err(err) = init_result {
+                                error!(
+                                    "The {plugin_user_id} plugin returned an error while initializing: {err}"
+                                );
+                                return;
+                            }
+                        }
+                        Err(err) => {
+                            error!("The {plugin_user_id} plugin experienced a critical error: {err}");
+                            return;
+                        }
+                    }
+                }
+
+                let plugin_context = RuntimePlugin {
+                    plugin_pre,
+                    state_pre,
+                };
+
+                plugins.write().await.insert(plugin_id, plugin_context);
             }));
         }
 
@@ -326,20 +327,27 @@ impl Runtime {
         Ok(())
     }
 
-    // TODO: Remove trapped plugins
+    // TODO:
+    // - Remove trapped plugins
+    // - Make plugin metadata accessible
 
     async fn call_dependency_function(
         plugins: Arc<RwLock<HashMap<Uuid, RuntimePlugin>>>,
         plugin_builder: Arc<PluginBuilder>,
-        plugin_id: Uuid,
+        plugin_uuid: Uuid,
         function_id: String,
         params: Vec<u8>,
         response_sender: Sender<Result<Vec<u8>, PluginError>>,
     ) {
-        let (instance, store) = match plugin_builder.instantiate(plugins, plugin_id).await {
+        let (instance, store) = match plugin_builder.instantiate(plugins, plugin_uuid).await {
             Ok((instance, store)) => (instance, store),
             Err(err) => {
-                error!("{err}");
+                let err = format!("Plugin instantiation error: {err}");
+
+                error!(err);
+
+                response_sender.send(Err(err)).unwrap();
+
                 return;
             }
         };
@@ -353,11 +361,13 @@ impl Runtime {
                 response_sender.send(result).unwrap();
             }
             Err(err) => {
-                let err = format!("The {plugin_id} plugin experienced a critical error: {err}");
+                error!("The {plugin_uuid} plugin experienced a critical error: {err}");
 
-                error!(err);
-
-                response_sender.send(Err(err)).unwrap();
+                response_sender
+                    .send(Err(format!(
+                        "The dependency plugin experienced a critical error: {err}"
+                    )))
+                    .unwrap();
             }
         }
     }
@@ -365,13 +375,13 @@ impl Runtime {
     async fn call_scheduled_job(
         plugins: Arc<RwLock<HashMap<Uuid, RuntimePlugin>>>,
         plugin_builder: Arc<PluginBuilder>,
-        plugin_id: Uuid,
+        plugin_uuid: Uuid,
         job_id: Uuid,
     ) {
-        let (instance, store) = match plugin_builder.instantiate(plugins, plugin_id).await {
+        let (instance, store) = match plugin_builder.instantiate(plugins, plugin_uuid).await {
             Ok((instance, store)) => (instance, store),
             Err(err) => {
-                error!("{err}");
+                error!("Plugin instantiation error: {err}");
                 return;
             }
         };
@@ -383,11 +393,11 @@ impl Runtime {
         {
             Ok(result) => {
                 if let Err(err) = result {
-                    error!("The {plugin_id} plugin returned an error: {err}");
+                    error!("[{plugin_uuid}]: {err}");
                 }
             }
             Err(err) => {
-                error!("The {plugin_id} plugin experienced a critical error: {err}");
+                error!("The {plugin_uuid} plugin experienced a critical error: {err}");
             }
         }
     }
@@ -395,13 +405,13 @@ impl Runtime {
     async fn call_discord_application_commands(
         plugins: Arc<RwLock<HashMap<Uuid, RuntimePlugin>>>,
         plugin_builder: Arc<PluginBuilder>,
-        plugin_id: Uuid,
+        plugin_uuid: Uuid,
         results: DiscordRegistrationsResultApplicationCommands,
     ) {
-        let (instance, store) = match plugin_builder.instantiate(plugins, plugin_id).await {
+        let (instance, store) = match plugin_builder.instantiate(plugins, plugin_uuid).await {
             Ok((instance, store)) => (instance, store),
             Err(err) => {
-                error!("{err}");
+                error!("Plugin instantiation error: {err}");
                 return;
             }
         };
@@ -411,20 +421,20 @@ impl Runtime {
             .call_discord_application_commands(store, &results)
             .await
         {
-            error!("The {plugin_id} plugin experienced a critical error: {err}");
+            error!("The {plugin_uuid} plugin experienced a critical error: {err}");
         }
     }
 
     async fn call_discord_event(
         plugins: Arc<RwLock<HashMap<Uuid, RuntimePlugin>>>,
         plugin_builder: Arc<PluginBuilder>,
-        plugin_id: Uuid,
+        plugin_uuid: Uuid,
         event: DiscordEvents,
     ) {
-        let (instance, store) = match plugin_builder.instantiate(plugins, plugin_id).await {
+        let (instance, store) = match plugin_builder.instantiate(plugins, plugin_uuid).await {
             Ok((instance, store)) => (instance, store),
             Err(err) => {
-                error!("{err}");
+                error!("Plugin instantiation error: {err}");
                 return;
             }
         };
@@ -436,21 +446,21 @@ impl Runtime {
         {
             Ok(result) => {
                 if let Err(err) = result {
-                    error!("The {plugin_id} plugin returned an error: {err}");
+                    error!("[{plugin_uuid}]: {err}");
                 }
             }
             Err(err) => {
-                error!("The {plugin_id} plugin experienced a critical error: {err}");
+                error!("The {plugin_uuid} plugin experienced a critical error: {err}");
             }
         }
     }
 
     async fn call_shutdown(
         plugin_builder: Arc<PluginBuilder>,
-        plugin_id: Uuid,
+        plugin_uuid: Uuid,
         plugin: RuntimePlugin,
     ) {
-        let mut store = plugin_builder.store_builder(plugin_id, &plugin.state_pre);
+        let mut store = plugin_builder.store_builder(plugin_uuid, &plugin.state_pre);
 
         let instance = match plugin.plugin_pre.instantiate_async(&mut store).await {
             Ok(instance) => instance,
@@ -470,11 +480,11 @@ impl Runtime {
         {
             Ok(result) => {
                 if let Err(err) = result {
-                    error!("The {plugin_id} plugin returned an error: {err}");
+                    error!("[{plugin_uuid}]: {err}");
                 }
             }
             Err(err) => {
-                error!("The {plugin_id} plugin experienced a critical error: {err}");
+                error!("The {plugin_uuid} plugin experienced a critical error: {err}");
             }
         }
     }

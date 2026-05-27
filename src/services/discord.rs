@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use anyhow::{Result, bail};
+use anyhow::Result;
 use tokio::{
     sync::mpsc::{UnboundedReceiver, UnboundedSender},
     task::JoinHandle,
@@ -49,29 +49,19 @@ impl Discord {
 
         let intents = InternalIntents::from(config.intents).0;
 
-        rustls::crypto::aws_lc_rs::default_provider()
-            .install_default()
-            .unwrap();
+        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
 
         let http_client = Client::new(secrets.bot_token.clone());
 
         let config = Config::new(secrets.bot_token, intents);
 
-        let (shards, shard_message_senders) = match twilight_gateway::create_recommended(
-            &http_client,
-            config,
-            |_, builder| builder.build(),
-        )
-        .await
-        {
-            Ok(shard_iterator) => Self::shard_message_senders(Box::new(shard_iterator)),
-            Err(err) => {
-                bail!(
-                    "Something went wrong while getting the recommended amount of shards from Discord, error: {}",
-                    &err
-                );
-            }
-        };
+        let shard_iterator =
+            twilight_gateway::create_recommended(&http_client, config, |_, builder| {
+                builder.build()
+            })
+            .await?;
+
+        let (shards, shard_message_senders) = Self::shard_message_senders(Box::new(shard_iterator));
 
         // TODO: Use the in memory cache
         let cache = Arc::new(DefaultInMemoryCache::default());
@@ -87,7 +77,7 @@ impl Discord {
     }
 
     #[hotpath::measure]
-    pub fn start(mut self) -> JoinHandle<()> {
+    pub fn run(mut self) -> JoinHandle<()> {
         let mut shard_tasks = Vec::with_capacity(self.shards.len());
         let http_task_tracker = TaskTracker::new();
 
@@ -108,12 +98,12 @@ impl Discord {
                             self.core_tx.clone(),
                         ));
                     }
-                    DiscordMessages::Request(request, response_sender) => {
+                    DiscordMessages::Request(request, sender) => {
                         let http_client = self.http_client.clone();
                         let shard_message_senders = self.shard_message_senders.clone();
 
                         http_task_tracker.spawn(async {
-                            response_sender
+                            sender
                                 .send(
                                     Self::request(http_client, shard_message_senders, request)
                                         .await,
@@ -132,7 +122,7 @@ impl Discord {
     }
 
     async fn shard_runner(
-        cache: Arc<InMemoryCache>,
+        _cache: Arc<InMemoryCache>,
         core_tx: Arc<UnboundedSender<CoreMessages>>,
         mut shard: Shard,
     ) {
@@ -150,7 +140,7 @@ impl Discord {
                 break;
             }
 
-            cache.update(&event);
+            //cache.update(&event);
 
             tokio::spawn(Self::handle_event(core_tx.clone(), event));
         }

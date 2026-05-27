@@ -3,7 +3,7 @@
 
 use std::{collections::HashMap, str::FromStr, sync::Arc};
 
-use anyhow::{Result, bail};
+use anyhow::Result;
 use fjall::Slice;
 use tokio::sync::{mpsc::UnboundedSender, oneshot::channel};
 use tracing::{error, info};
@@ -227,18 +227,18 @@ impl Discord {
                 )
                 .await
                 {
-                    let (result_sender, result_receiver) = channel();
+                    let (sender, receiver) = channel();
 
                     core_tx
                         .send(CoreMessages::DatabaseModule(DatabaseMessages::Insert(
                             Keyspaces::DiscordApplicationCommands,
                             command_id.to_string().into_bytes(),
                             command.0.as_bytes().to_vec(),
-                            result_sender,
+                            sender,
                         )))
                         .unwrap();
 
-                    result_receiver.await.unwrap().unwrap();
+                    receiver.await.unwrap().unwrap();
 
                     plugin_results.insert(command.1.name, Ok(command_id.get()));
                 } else {
@@ -265,18 +265,18 @@ impl Discord {
                     )
                     .await
                     {
-                        let (result_sender, result_receiver) = channel();
+                        let (sender, receiver) = channel();
 
                         core_tx
                             .send(CoreMessages::DatabaseModule(DatabaseMessages::Insert(
                                 Keyspaces::DiscordApplicationCommands,
                                 command_id.to_string().into_bytes(),
                                 command.0.as_bytes().to_vec(),
-                                result_sender,
+                                sender,
                             )))
                             .unwrap();
 
-                        result_receiver.await.unwrap().unwrap();
+                        receiver.await.unwrap().unwrap();
 
                         plugin_results.insert(command.1.name, Ok(command_id.get()));
                     } else {
@@ -296,11 +296,9 @@ impl Discord {
         Self::delete_old_application_commands(http_client, application_id, &discord_commands).await;
 
         for result in results {
-            core_tx
-                .send(CoreMessages::Runtime(RuntimeMessages::Discord(
-                    RuntimeMessagesDiscord::CallDiscordApplicationCommands(result.0, result.1),
-                )))
-                .unwrap();
+            let _ = core_tx.send(CoreMessages::Runtime(RuntimeMessages::Discord(
+                RuntimeMessagesDiscord::CallDiscordApplicationCommands(result.0, result.1),
+            )));
         }
     }
 
@@ -324,18 +322,9 @@ impl Discord {
                 }
             };
 
-            match Request::builder(&route)
+            Request::builder(&route)
                 .body(sonic_rs::to_vec(command).unwrap())
-                .build()
-            {
-                Ok(request) => request,
-                Err(err) => {
-                    bail!(
-                        "Failed to build the create global command request, error: {}",
-                        &err
-                    );
-                }
-            }
+                .build()?
         } else {
             let route = if let Some(guild_id) = command.guild_id {
                 Route::CreateGuildCommand {
@@ -348,37 +337,18 @@ impl Discord {
                 }
             };
 
-            match Request::builder(&route)
+            Request::builder(&route)
                 .body(sonic_rs::to_vec(command).unwrap())
-                .build()
-            {
-                Ok(request) => request,
-                Err(err) => {
-                    bail!(
-                        "Failed to build the create global command request, error: {}",
-                        &err
-                    );
-                }
-            }
+                .build()?
         };
 
-        match http_client.request::<Command>(request).await {
-            Ok(response) => match response.model().await {
-                Ok(command) => Ok(command.id.unwrap()),
-                Err(err) => {
-                    bail!(
-                        "Something went wrong while deserializing the create global command response, error: {}",
-                        &err
-                    );
-                }
-            },
-            Err(err) => {
-                bail!(
-                    "Something went wrong while requesting a global command creation, error: {}",
-                    &err
-                );
-            }
-        }
+        let command = http_client
+            .request::<Command>(request)
+            .await?
+            .model()
+            .await?;
+
+        Ok(command.id.unwrap())
     }
 
     async fn delete_old_application_commands(

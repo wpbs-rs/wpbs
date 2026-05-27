@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 /* Copyright © 2026 Eduard Smet */
 
-use std::{collections::HashSet, str::FromStr, sync::Arc};
+use std::{str::FromStr, sync::Arc};
 
 use tokio::sync::{mpsc::UnboundedSender, oneshot::channel};
 use tracing::{debug, error};
@@ -40,16 +40,14 @@ impl Discord {
                             return;
                         };
 
-                        core_tx
-                            .send(CoreMessages::Runtime(RuntimeMessages::Discord(
-                                RuntimeMessagesDiscord::CallDiscordEvent(
-                                    Uuid::from_slice(&response_bytes).unwrap(),
-                                    DiscordEvents::InteractionCreate(
-                                        sonic_rs::to_string(&interaction_create).unwrap(),
-                                    ),
+                        let _ = core_tx.send(CoreMessages::Runtime(RuntimeMessages::Discord(
+                            RuntimeMessagesDiscord::CallDiscordEvent(
+                                Uuid::from_slice(&response_bytes).unwrap(),
+                                DiscordEvents::InteractionCreate(
+                                    sonic_rs::to_string(&interaction_create).unwrap(),
                                 ),
-                            )))
-                            .unwrap();
+                            ),
+                        )));
                     }
                     Some(InteractionData::MessageComponent(message_component_interaction_data)) => {
                         let (sender, receiver) = channel();
@@ -72,16 +70,14 @@ impl Discord {
                             return;
                         };
 
-                        core_tx
-                            .send(CoreMessages::Runtime(RuntimeMessages::Discord(
-                                RuntimeMessagesDiscord::CallDiscordEvent(
-                                    Uuid::from_slice(&response_bytes).unwrap(),
-                                    DiscordEvents::InteractionCreate(
-                                        sonic_rs::to_string(&interaction_create).unwrap(),
-                                    ),
+                        let _ = core_tx.send(CoreMessages::Runtime(RuntimeMessages::Discord(
+                            RuntimeMessagesDiscord::CallDiscordEvent(
+                                Uuid::from_slice(&response_bytes).unwrap(),
+                                DiscordEvents::InteractionCreate(
+                                    sonic_rs::to_string(&interaction_create).unwrap(),
                                 ),
-                            )))
-                            .unwrap();
+                            ),
+                        )));
                     }
                     Some(InteractionData::ModalSubmit(modal_interaction_data)) => {
                         let (sender, receiver) = channel();
@@ -102,16 +98,14 @@ impl Discord {
                             return;
                         };
 
-                        core_tx
-                            .send(CoreMessages::Runtime(RuntimeMessages::Discord(
-                                RuntimeMessagesDiscord::CallDiscordEvent(
-                                    Uuid::from_slice(&response_bytes).unwrap(),
-                                    DiscordEvents::InteractionCreate(
-                                        sonic_rs::to_string(&interaction_create).unwrap(),
-                                    ),
+                        let _ = core_tx.send(CoreMessages::Runtime(RuntimeMessages::Discord(
+                            RuntimeMessagesDiscord::CallDiscordEvent(
+                                Uuid::from_slice(&response_bytes).unwrap(),
+                                DiscordEvents::InteractionCreate(
+                                    sonic_rs::to_string(&interaction_create).unwrap(),
                                 ),
-                            )))
-                            .unwrap();
+                            ),
+                        )));
                     }
                     _ => error!(
                         "Received unsupported interaction event: {}",
@@ -122,7 +116,7 @@ impl Discord {
             Event::MessageCreate(message_create) => {
                 Self::handle_basic_event(
                     core_tx,
-                    DiscordEventKinds::MessageCreate.into(),
+                    DiscordEventKinds::MessageCreate,
                     DiscordEvents::MessageCreate(sonic_rs::to_string(&message_create).unwrap()),
                 )
                 .await;
@@ -130,7 +124,7 @@ impl Discord {
             Event::ThreadCreate(thread_create) => {
                 Self::handle_basic_event(
                     core_tx,
-                    DiscordEventKinds::ThreadCreate.into(),
+                    DiscordEventKinds::ThreadCreate,
                     DiscordEvents::ThreadCreate(sonic_rs::to_string(&thread_create).unwrap()),
                 )
                 .await;
@@ -138,7 +132,7 @@ impl Discord {
             Event::ThreadDelete(thread_delete) => {
                 Self::handle_basic_event(
                     core_tx,
-                    DiscordEventKinds::ThreadDelete.into(),
+                    DiscordEventKinds::ThreadDelete,
                     DiscordEvents::ThreadDelete(sonic_rs::to_string(&thread_delete).unwrap()),
                 )
                 .await;
@@ -146,7 +140,7 @@ impl Discord {
             Event::ThreadListSync(thread_list_sync) => {
                 Self::handle_basic_event(
                     core_tx,
-                    DiscordEventKinds::ThreadListSync.into(),
+                    DiscordEventKinds::ThreadListSync,
                     DiscordEvents::ThreadListSync(sonic_rs::to_string(&thread_list_sync).unwrap()),
                 )
                 .await;
@@ -154,7 +148,7 @@ impl Discord {
             Event::ThreadMemberUpdate(thread_member_update) => {
                 Self::handle_basic_event(
                     core_tx,
-                    DiscordEventKinds::ThreadMemberUpdate.into(),
+                    DiscordEventKinds::ThreadMemberUpdate,
                     DiscordEvents::ThreadMemberUpdate(
                         sonic_rs::to_string(&thread_member_update).unwrap(),
                     ),
@@ -164,7 +158,7 @@ impl Discord {
             Event::ThreadMembersUpdate(thread_members_update) => {
                 Self::handle_basic_event(
                     core_tx,
-                    DiscordEventKinds::ThreadMembersUpdate.into(),
+                    DiscordEventKinds::ThreadMembersUpdate,
                     DiscordEvents::ThreadMembersUpdate(
                         sonic_rs::to_string(&thread_members_update).unwrap(),
                     ),
@@ -174,47 +168,43 @@ impl Discord {
             Event::ThreadUpdate(thread_update) => {
                 Self::handle_basic_event(
                     core_tx,
-                    DiscordEventKinds::ThreadUpdate.into(),
+                    DiscordEventKinds::ThreadUpdate,
                     DiscordEvents::ThreadUpdate(sonic_rs::to_string(&thread_update).unwrap()),
                 )
                 .await;
             }
             _ => debug!(
                 "Received unsupported event: {}",
-                &event.kind().name().unwrap_or("[No event kind name]")
+                &event.kind().name().unwrap_or("undefined")
             ),
         }
     }
 
     pub async fn handle_basic_event(
         core_tx: Arc<UnboundedSender<CoreMessages>>,
-        key: Vec<u8>,
+        key: DiscordEventKinds,
         event: DiscordEvents,
     ) {
         let (sender, receiver) = channel();
 
         core_tx
-            .send(CoreMessages::DatabaseModule(DatabaseMessages::Get(
+            .send(CoreMessages::DatabaseModule(DatabaseMessages::Prefix(
                 Keyspaces::DiscordEvents,
-                key,
+                key.to_string().into_bytes(),
                 sender,
             )))
             .unwrap();
 
-        let Some(response_bytes) = receiver.await.unwrap().unwrap() else {
+        let Ok(entries) = receiver.await.unwrap() else {
             return;
         };
 
-        let plugin_ids_bytes = sonic_rs::from_slice::<HashSet<String>>(&response_bytes).unwrap();
+        for entry in entries {
+            let plugin_id = Uuid::from_slice(&entry.value().unwrap()).unwrap();
 
-        for plugin_id_bytes in plugin_ids_bytes {
-            let plugin_id = Uuid::parse_str(&plugin_id_bytes).unwrap();
-
-            core_tx
-                .send(CoreMessages::Runtime(RuntimeMessages::Discord(
-                    RuntimeMessagesDiscord::CallDiscordEvent(plugin_id, event.clone()),
-                )))
-                .unwrap();
+            let _ = core_tx.send(CoreMessages::Runtime(RuntimeMessages::Discord(
+                RuntimeMessagesDiscord::CallDiscordEvent(plugin_id, event.clone()),
+            )));
         }
     }
 }

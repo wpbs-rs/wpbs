@@ -3,7 +3,7 @@
 
 use std::{env, path::Path};
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Result, bail};
 use tracing::{debug, info};
 
 use crate::config::services::ConfigServices;
@@ -44,8 +44,7 @@ pub fn get_secrets(config: &ConfigServices) -> Result<Secrets> {
 
     if config.discord.enabled {
         secrets.services.discord = Some(SecretsDiscord {
-            bot_token: env::var("DISCORD_BOT_TOKEN")
-                .context("Failed to load the DISCORD_BOT_TOKEN environment variable")?,
+            bot_token: env::var("DISCORD_BOT_TOKEN")?,
         });
     }
 

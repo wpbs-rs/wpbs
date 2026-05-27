@@ -15,10 +15,10 @@ use tokio::task::spawn_blocking;
 pub enum Keyspaces {
     PluginStore, // K: String (Uuid:String); V: Vec<u8>
 
-    DependencyFunctions, // K: String (registry_id/plugin_id/function_id); V: Uuid
+    DependencyFunctions, // K: String (registry_id/plugin_id/function_id:version); V: Uuid
 
-    DiscordEvents,              // K: String; V: Vec<Uuid>
-    DiscordApplicationCommands, // 1) K: String (Uuid-String); V: Command; 2) K: String (u64); V: Uuid
+    DiscordEvents,              // K: String (DiscordEventKinds:Uuid); V: Uuid
+    DiscordApplicationCommands, // 1) K: String (Uuid:Uuid:count); V: Vec<u8>; 2) K: String (u64); V: Uuid
     DiscordMessageComponents,   // K: Uuid; V: Uuid
     DiscordModals,              // K: Uuid; V: Uuid
 }
@@ -35,52 +35,36 @@ pub fn new(database_directory_path: &Path) -> Result<Database> {
 
 pub async fn handle_action(database: &Database, message: DatabaseMessages) {
     match message {
-        DatabaseMessages::Get(keyspace, key, response_sender) => {
-            response_sender
-                .send(get(database, &keyspace, key).await)
-                .unwrap();
+        DatabaseMessages::Get(keyspace, key, sender) => {
+            let _ = sender.send(get(database, &keyspace, key).await);
         }
-        DatabaseMessages::Range(keyspace, range_start, range_end, inclusive, response_sender) => {
-            let _ = response_sender
-                .send(range(database, &keyspace, range_start, range_end, inclusive).await);
+        DatabaseMessages::Range(keyspace, range_start, range_end, inclusive, sender) => {
+            let _ =
+                sender.send(range(database, &keyspace, range_start, range_end, inclusive).await);
         }
-        DatabaseMessages::Prefix(keyspace, prefix_value, response_sender) => {
-            let _ = response_sender.send(prefix(database, &keyspace, prefix_value).await);
+        DatabaseMessages::Prefix(keyspace, prefix_value, sender) => {
+            let _ = sender.send(prefix(database, &keyspace, prefix_value).await);
         }
-        DatabaseMessages::GetAllEntries(keyspace, response_sender) => {
-            response_sender
-                .send(get_all_entries(database, &keyspace).await)
-                .unwrap();
+        DatabaseMessages::GetAllEntries(keyspace, sender) => {
+            let _ = sender.send(get_all_entries(database, &keyspace).await);
         }
-        DatabaseMessages::GetAllKeys(keyspace, response_sender) => {
-            response_sender
-                .send(get_all_keys(database, &keyspace).await)
-                .unwrap();
+        DatabaseMessages::GetAllKeys(keyspace, sender) => {
+            let _ = sender.send(get_all_keys(database, &keyspace).await);
         }
-        DatabaseMessages::GetAllValues(keyspace, response_sender) => {
-            response_sender
-                .send(get_all_values(database, &keyspace).await)
-                .unwrap();
+        DatabaseMessages::GetAllValues(keyspace, sender) => {
+            let _ = sender.send(get_all_values(database, &keyspace).await);
         }
-        DatabaseMessages::Insert(keyspace, key, value, response_sender) => {
-            response_sender
-                .send(insert(database, &keyspace, key, value).await)
-                .unwrap();
+        DatabaseMessages::Insert(keyspace, key, value, sender) => {
+            let _ = sender.send(insert(database, &keyspace, key, value).await);
         }
-        DatabaseMessages::Remove(keyspace, key, response_sender) => {
-            response_sender
-                .send(remove(database, &keyspace, key).await)
-                .unwrap();
+        DatabaseMessages::Remove(keyspace, key, sender) => {
+            let _ = sender.send(remove(database, &keyspace, key).await);
         }
-        DatabaseMessages::ContainsKey(keyspace, key, response_sender) => {
-            response_sender
-                .send(contains_key(database, &keyspace, key).await)
-                .unwrap();
+        DatabaseMessages::ContainsKey(keyspace, key, sender) => {
+            let _ = sender.send(contains_key(database, &keyspace, key).await);
         }
-        DatabaseMessages::Clear(keyspace, response_sender) => {
-            response_sender
-                .send(clear(database, &keyspace).await)
-                .unwrap();
+        DatabaseMessages::Clear(keyspace, sender) => {
+            let _ = sender.send(clear(database, &keyspace).await);
         }
     }
 }

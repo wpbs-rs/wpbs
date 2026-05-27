@@ -3,7 +3,7 @@
 
 use std::str::FromStr;
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Result, bail};
 use reqwest::StatusCode;
 use tracing::debug;
 use url::{ParseError, Url};
@@ -12,7 +12,7 @@ use crate::http::HttpClient;
 
 impl HttpClient {
     pub async fn get_file_from_registry(&self, registry: &str, path: &str) -> Result<Vec<u8>> {
-        let url = Self::parse_url(registry, path).context("An error occurred while trying to construct a valid URL from the provided registry and path")?;
+        let url = Self::parse_url(registry, path)?;
 
         debug!("Requested registry file: {url}");
 
@@ -25,11 +25,7 @@ impl HttpClient {
             );
         }
 
-        Ok(response
-            .bytes()
-            .await
-            .context("Something went wrong while getting the raw bytes from the response")?
-            .into())
+        Ok(response.bytes().await?.into())
     }
 
     fn parse_url(registry: &str, path: &str) -> Result<Url, ParseError> {

@@ -1,6 +1,8 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 /* Copyright © 2026 Eduard Smet */
 
+use std::fmt::{self, Display};
+
 use serde::{Deserialize, Serialize};
 
 use crate::runtime::plugins::wpbs::plugin::discord_import_types::DiscordEventKinds;
@@ -47,17 +49,17 @@ impl From<DiscordEventKinds> for PluginPermissionsDiscordEvents {
     }
 }
 
-impl From<DiscordEventKinds> for Vec<u8> {
-    fn from(requested_discord_registration: DiscordEventKinds) -> Self {
-        match requested_discord_registration {
-            DiscordEventKinds::MessageCreate => "MESSAGE_CREATE".as_bytes().to_vec(),
-            DiscordEventKinds::InteractionCreate => "INTERACTION_CREATE".as_bytes().to_vec(),
-            DiscordEventKinds::ThreadCreate => "THREAD-CREATE".as_bytes().to_vec(),
-            DiscordEventKinds::ThreadDelete => "THREAD_DELETE".as_bytes().to_vec(),
-            DiscordEventKinds::ThreadListSync => "THREAD_LIST_SYNC".as_bytes().to_vec(),
-            DiscordEventKinds::ThreadMemberUpdate => "THREAD_MEMBER_UPDATE".as_bytes().to_vec(),
-            DiscordEventKinds::ThreadMembersUpdate => "THREAD_MEMBERS_UPDATE".as_bytes().to_vec(),
-            DiscordEventKinds::ThreadUpdate => "THREAD_UPDATE".as_bytes().to_vec(),
+impl Display for DiscordEventKinds {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            DiscordEventKinds::MessageCreate => write!(f, "MESSAGE_CREATE"),
+            DiscordEventKinds::InteractionCreate => write!(f, "INTERACTION_CREATE"),
+            DiscordEventKinds::ThreadCreate => write!(f, "THREAD_CREATE"),
+            DiscordEventKinds::ThreadDelete => write!(f, "THREAD_DELETE"),
+            DiscordEventKinds::ThreadListSync => write!(f, "THREAD_LIST_SYNC"),
+            DiscordEventKinds::ThreadMemberUpdate => write!(f, "THREAD_MEMBER_UPDATE"),
+            DiscordEventKinds::ThreadMembersUpdate => write!(f, "THREAD_MEMBERS_UPDATE"),
+            DiscordEventKinds::ThreadUpdate => write!(f, "THREAD_UPDATE"),
         }
     }
 }

@@ -106,16 +106,12 @@ async fn main() -> Result<ExitCode> {
     );
 
     if let Err(err) = setup(
-        (
-            cli.http_client_timeout_seconds,
-            cli.plugin_directory,
-            cli.cache,
-        ),
-        (
-            channels.services,
-            channels.runtime,
-            &channels.core.post_start,
-        ),
+        cli.http_client_timeout_seconds,
+        cli.plugin_directory,
+        cli.cache,
+        channels.services,
+        channels.runtime,
+        &channels.core.post_start,
         config,
         secrets,
     )
@@ -139,11 +135,11 @@ async fn main() -> Result<ExitCode> {
 
 fn initialization(
     cli_log_parameters: CliLogParameters,
-    env_file: &Path,
+    env_file_path: &Path,
 ) -> Result<Option<WorkerGuard>> {
     let guard = utils::logger::new(cli_log_parameters)?;
 
-    utils::env::load_env_file(env_file)?;
+    utils::env::load_env_file(env_file_path)?;
 
     Ok(guard)
 }
@@ -181,17 +177,30 @@ fn message_handler(
                     }
                 }
                 CoreMessages::Shutdown(shutdown_kind) => {
-                    let shutdown = tokio::spawn(shutdown(
+                    {
+                        let mut shutdown_guard = SHUTDOWN.write().await;
+
+                        if let Some(shutdown_value) = *shutdown_guard {
+                            if (shutdown_value != Shutdown::SigInt
+                                && shutdown_kind == Shutdown::SigInt)
+                                || (shutdown_value == Shutdown::Restart
+                                    && shutdown_kind == Shutdown::Normal)
+                            {
+                                let _ = shutdown_guard.insert(shutdown_kind);
+                            }
+
+                            continue;
+                        }
+
+                        let _ = shutdown_guard.insert(shutdown_kind);
+                    }
+
+                    shutdown_task = Some(tokio::spawn(shutdown(
                         job_scheduler_tx.take(),
                         discord_tx.take(),
                         runtime_tx.take(),
                         shutdown_signal_listener.take(),
-                        shutdown_kind,
-                    ));
-
-                    if shutdown_task.is_none() {
-                        shutdown_task = Some(shutdown);
-                    }
+                    )));
                 }
             }
         }
@@ -202,20 +211,21 @@ fn message_handler(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn setup(
-    (http_client_timeout_seconds, plugin_directory, cache): (u64, PathBuf, bool),
-    (service_channels, runtime_channels, core_post_start_sender): (
-        ChannelsServices,
-        ChannelsRuntime,
-        &UnboundedSender<CoreMessages>,
-    ),
+    http_client_timeout_seconds: u64,
+    plugin_directory_path: PathBuf,
+    cache: bool,
+    service_channels: ChannelsServices,
+    runtime_channels: ChannelsRuntime,
+    core_post_start_sender: &UnboundedSender<CoreMessages>,
     config: Config,
     secrets: Secrets,
 ) -> Result<()> {
     let available_plugins = registry::registry_get_plugins(
         http_client_timeout_seconds,
         config.plugins,
-        plugin_directory.clone(),
+        plugin_directory_path.clone(),
         cache,
     )
     .await?;
@@ -229,13 +239,13 @@ async fn setup(
             .initialize_plugins(
                 available_plugins,
                 runtime_channels.core_tx,
-                plugin_directory,
+                plugin_directory_path,
             )
             .await?;
     }
 
     if SHUTDOWN.read().await.is_none() {
-        TASKS.write().await.runtime = Some(runtime.start());
+        TASKS.write().await.runtime = Some(runtime.run());
     } else {
         drop(runtime);
     }
@@ -275,24 +285,7 @@ async fn shutdown(
     discord_tx: Option<UnboundedSender<DiscordMessages>>,
     runtime_tx: Option<UnboundedSender<RuntimeMessages>>,
     shutdown_signal_listener: Option<JoinHandle<()>>,
-    shutdown_kind: Shutdown,
 ) {
-    {
-        let mut shutdown_guard = SHUTDOWN.write().await;
-
-        if let Some(shutdown_value) = *shutdown_guard {
-            if (shutdown_value != Shutdown::SigInt && shutdown_kind == Shutdown::SigInt)
-                || (shutdown_value == Shutdown::Restart && shutdown_kind == Shutdown::Normal)
-            {
-                let _ = shutdown_guard.insert(shutdown_kind);
-            }
-
-            return;
-        }
-
-        let _ = shutdown_guard.insert(shutdown_kind);
-    }
-
     drop(runtime_tx.unwrap());
 
     if let Some(runtime) = TASKS.write().await.runtime.take() {
@@ -332,9 +325,7 @@ fn restart() -> Result<u8> {
     // HACK: Windows does not support `exec`. Instead we spawn a child porcess and wait for it to finish.
     #[cfg(target_family = "windows")]
     {
-        if let Err(err) = Command::new(executable_path).args(args).status() {
-            bail!(err);
-        }
+        Command::new(executable_path).args(args).status()?;
 
         Ok(0)
     }

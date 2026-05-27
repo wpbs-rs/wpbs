@@ -46,12 +46,12 @@ static PROGRAM_VERSION: LazyLock<Version> =
 pub async fn registry_get_plugins(
     http_client_timeout_seconds: u64,
     config: HashMap<String, ConfigPlugin>,
-    plugin_directory: PathBuf,
+    plugin_directory_path: PathBuf,
     cache: bool,
 ) -> Result<Vec<(Uuid, AvailablePlugin)>> {
     let http_client = Arc::new(HttpClient::new(http_client_timeout_seconds)?);
 
-    get_plugins(http_client, config, plugin_directory, cache).await
+    get_plugins(http_client, config, plugin_directory_path, cache).await
 }
 
 #[hotpath::measure]

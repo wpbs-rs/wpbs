@@ -27,7 +27,7 @@ pub async fn start(
             JobScheduler::new(job_scheduler_channels.core_tx, job_scheduler_channels.rx);
 
         if SHUTDOWN.read().await.is_none() {
-            TASKS.write().await.services.job_scheduler = Some(job_scheduler.start());
+            TASKS.write().await.services.job_scheduler = Some(job_scheduler.run());
         } else {
             drop(job_scheduler);
         }
@@ -43,7 +43,7 @@ pub async fn start(
         .await?;
 
         if SHUTDOWN.read().await.is_none() {
-            TASKS.write().await.services.discord = Some(discord.start());
+            TASKS.write().await.services.discord = Some(discord.run());
         } else {
             drop(discord);
         }
@@ -54,10 +54,8 @@ pub async fn start(
 
 pub async fn post_start(core_tx: &UnboundedSender<CoreMessages>) {
     if TASKS.read().await.services.discord.is_some() {
-        core_tx
-            .send(CoreMessages::Discord(
-                DiscordMessages::RegisterApplicationCommands,
-            ))
-            .unwrap();
+        let _ = core_tx.send(CoreMessages::Discord(
+            DiscordMessages::RegisterApplicationCommands,
+        ));
     }
 }

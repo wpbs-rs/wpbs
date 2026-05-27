@@ -62,13 +62,13 @@ impl PluginBuilder {
 
     pub fn store_builder(
         &self,
-        plugin_id: Uuid,
+        plugin_uuid: Uuid,
         state_pre: &RuntimePluginStatePre,
     ) -> Store<InternalRuntime> {
         let wasi = WasiCtxBuilder::new()
             .envs(&state_pre.environment)
             .preopened_dir(
-                &*state_pre.workspace_directory,
+                &*state_pre.workspace_directory_path,
                 "/",
                 DirPerms::all(),
                 FilePerms::all(),
@@ -80,9 +80,9 @@ impl PluginBuilder {
             &self.engine,
             InternalRuntime {
                 metadata: InternalRuntimeMetadata {
-                    plugin_id,
+                    plugin_uuid,
                     registry_id: state_pre.registry_id.clone(),
-                    id: state_pre.id.clone(),
+                    plugin_id: state_pre.id.clone(),
                     user_id: state_pre.user_id.clone(),
                     version: state_pre.version.clone(),
                     permissions: state_pre.permissions.clone(),
@@ -109,15 +109,9 @@ impl PluginBuilder {
         if let Some(plugin) = plugins.read().await.get(&plugin_id) {
             let mut store = self.store_builder(plugin_id, &plugin.state_pre);
 
-            match plugin.plugin_pre.instantiate_async(&mut store).await {
-                Ok(instance) => Ok((instance, store)),
-                Err(err) => {
-                    bail!(
-                        "Failed to instantiate the {} plugin, error: {err}",
-                        plugin.state_pre.user_id
-                    );
-                }
-            }
+            let instance = plugin.plugin_pre.instantiate_async(&mut store).await?;
+
+            Ok((instance, store))
         } else {
             bail!("Runtime has no plugin with the provided ID: {plugin_id}");
         }
@@ -128,7 +122,7 @@ impl PluginBuilder {
             loop {
                 if let Some(engine) = engine_weak.upgrade() {
                     engine.increment_epoch();
-                };
+                }
 
                 tokio::time::sleep(Duration::from_secs(INCREMENT_EPOCH_INTERVAL_SECS)).await;
             }

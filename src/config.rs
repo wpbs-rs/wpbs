@@ -3,7 +3,7 @@
 
 use std::{collections::HashMap, fs, path::Path};
 
-use anyhow::{Result, bail};
+use anyhow::Result;
 use serde::Deserialize;
 use tracing::info;
 
@@ -25,21 +25,9 @@ impl Config {
     pub fn new(file_path: &Path) -> Result<Self> {
         info!("Loading and parsing the config file");
 
-        let file_bytes = match fs::read(file_path) {
-            Ok(file_bytes) => file_bytes,
-            Err(err) => {
-                bail!("An error occurred while trying to read the config file: {err}");
-            }
-        };
+        let file_bytes = fs::read(file_path)?;
 
-        match serde_yaml_ng::from_slice::<Config>(&file_bytes) {
-            // TODO: Add environment variable interpolation
-            Ok(config) => Ok(config),
-            Err(err) => {
-                bail!(
-                    "An error occurred while trying to deserialize the config file YAML to a struct: {err}"
-                );
-            }
-        }
+        // TODO: Add environment variable interpolation
+        Ok(serde_yaml_ng::from_slice::<Config>(&file_bytes)?)
     }
 }

@@ -43,27 +43,27 @@ impl JobScheduler {
     }
 
     #[hotpath::measure]
-    pub fn start(mut self) -> JoinHandle<()> {
+    pub fn run(mut self) -> JoinHandle<()> {
         tokio::spawn(async move {
             let task_tracker = TaskTracker::new();
 
             while let Some(message) = self.rx.recv().await {
                 match message {
-                    JobSchedulerMessages::AddJob(plugin_id, cron, result) => {
+                    JobSchedulerMessages::AddJob(plugin_id, cron, sender) => {
                         let jobs = self.jobs.clone();
                         let core_tx = self.core_tx.clone();
 
                         task_tracker.spawn(async move {
-                            result
+                            sender
                                 .send(Self::add_job(jobs, core_tx, plugin_id, cron).await)
                                 .unwrap();
                         });
                     }
-                    JobSchedulerMessages::RemoveJob(uuid, result) => {
+                    JobSchedulerMessages::RemoveJob(uuid, sender) => {
                         let jobs = self.jobs.clone();
 
                         task_tracker.spawn(async move {
-                            result.send(Self::remove_job(jobs, uuid).await).unwrap();
+                            sender.send(Self::remove_job(jobs, uuid).await).unwrap();
                         });
                     }
                 }
