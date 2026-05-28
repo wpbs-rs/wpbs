@@ -15,6 +15,34 @@ pub struct PluginPermissionsDiscord {
     pub interactions: Vec<PluginPermissionsDiscordInteractions>,
 }
 
+impl PluginPermissionsDiscord {
+    pub fn calculate(&mut self) {
+        if self.events.contains(&PluginPermissionsDiscordEvents::All) {
+            self.events = vec![
+                PluginPermissionsDiscordEvents::MessageCreate,
+                PluginPermissionsDiscordEvents::InteractionCreate,
+                PluginPermissionsDiscordEvents::ThreadCreate,
+                PluginPermissionsDiscordEvents::ThreadDelete,
+                PluginPermissionsDiscordEvents::ThreadListSync,
+                PluginPermissionsDiscordEvents::ThreadMemberUpdate,
+                PluginPermissionsDiscordEvents::ThreadMembersUpdate,
+                PluginPermissionsDiscordEvents::ThreadUpdate,
+            ];
+        }
+
+        if self
+            .interactions
+            .contains(&PluginPermissionsDiscordInteractions::All)
+        {
+            self.interactions = vec![
+                PluginPermissionsDiscordInteractions::ApplicationCommands,
+                PluginPermissionsDiscordInteractions::MessageComponents,
+                PluginPermissionsDiscordInteractions::Modals,
+            ];
+        }
+    }
+}
+
 #[derive(Debug, Deserialize, PartialEq, Serialize)]
 pub enum PluginPermissionsDiscordEvents {
     All,

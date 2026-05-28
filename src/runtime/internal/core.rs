@@ -315,25 +315,20 @@ impl CoreImportFunctionsHost for InternalRuntime {
                                     &PluginPermissionsDiscordInteractions::ApplicationCommands,
                                 )
                             {
-                                let registration_id = Uuid::new_v4();
-
-                                for (index, application_command_registration) in
-                                    application_command_registrations.into_iter().enumerate()
+                                for application_command_registration in
+                                    application_command_registrations
                                 {
+                                    let uuid = Uuid::new_v4();
+
                                     let (sender, receiver) = channel();
 
                                     self.core_tx
                                         .send(CoreMessages::DatabaseModule(
                                             DatabaseMessages::Insert(
                                                 Keyspaces::DiscordApplicationCommands,
-                                                format!(
-                                                    "{}:{}:{}",
-                                                    self.metadata.plugin_uuid,
-                                                    registration_id,
-                                                    index + 1
-                                                )
-                                                .as_bytes()
-                                                .to_vec(),
+                                                format!("{}:{}", self.metadata.plugin_uuid, uuid)
+                                                    .as_bytes()
+                                                    .to_vec(),
                                                 application_command_registration
                                                     .as_bytes()
                                                     .to_vec(),
@@ -623,9 +618,9 @@ impl CoreImportFunctionsHost for InternalRuntime {
         plugin_version: Option<String>,
         params: Vec<u8>,
     ) -> Result<Vec<u8>, HostError> {
-        let mut key = format!("{registry_id}/{plugin_id}/{function_id}");
+        let mut key = format!("{registry_id}/{plugin_id}/{function_id}:");
         let response = if let Some(plugin_version) = plugin_version {
-            write!(key, ":{plugin_version}").unwrap();
+            write!(key, "{plugin_version}").unwrap();
 
             let (sender, receiver) = channel();
 

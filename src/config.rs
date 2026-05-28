@@ -28,6 +28,13 @@ impl Config {
         let file_bytes = fs::read(file_path)?;
 
         // TODO: Add environment variable interpolation
-        Ok(serde_yaml_ng::from_slice::<Config>(&file_bytes)?)
+        let mut config = serde_yaml_ng::from_slice::<Config>(&file_bytes)?;
+
+        config
+            .plugins
+            .values_mut()
+            .for_each(|p| p.permissions.calculate());
+
+        Ok(config)
     }
 }

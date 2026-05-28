@@ -1254,6 +1254,8 @@ version = "0.17.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ed5909b6e89a2db4456e54cd5f673791d7eca6732202bbf2a9cc504fe2f9b84a"
 dependencies = [
+ "allocator-api2",
+ "equivalent",
  "foldhash 0.2.0",
  "serde",
  "serde_core",
@@ -3576,20 +3578,9 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e421abadd41a4225275504ea4d6566923418b7f05506fbc9c0fe86ba7396114b"
 
 [[package]]
-name = "twilight-cache-inmemory"
-version = "0.17.1"
-source = "git+https://github.com/celarye/twilight/?branch=feat%2Fform-buffer#9f4db9b954a5bf098d30b8e48236c9fac5a913e6"
-dependencies = [
- "bitflags",
- "dashmap",
- "serde",
- "twilight-model",
-]
-
-[[package]]
 name = "twilight-gateway"
 version = "0.17.1"
-source = "git+https://github.com/celarye/twilight/?branch=feat%2Fform-buffer#9f4db9b954a5bf098d30b8e48236c9fac5a913e6"
+source = "git+https://github.com/celarye/twilight/#677dc72d5cc0a087d74ddb0ac0ddc8d655ac324e"
 dependencies = [
  "bitflags",
  "fastrand",
@@ -3610,7 +3601,7 @@ dependencies = [
 [[package]]
 name = "twilight-gateway-queue"
 version = "0.17.0"
-source = "git+https://github.com/celarye/twilight/?branch=feat%2Fform-buffer#9f4db9b954a5bf098d30b8e48236c9fac5a913e6"
+source = "git+https://github.com/celarye/twilight/#677dc72d5cc0a087d74ddb0ac0ddc8d655ac324e"
 dependencies = [
  "tokio",
  "tracing",
@@ -3619,7 +3610,7 @@ dependencies = [
 [[package]]
 name = "twilight-http"
 version = "0.17.1"
-source = "git+https://github.com/celarye/twilight/?branch=feat%2Fform-buffer#9f4db9b954a5bf098d30b8e48236c9fac5a913e6"
+source = "git+https://github.com/celarye/twilight/#677dc72d5cc0a087d74ddb0ac0ddc8d655ac324e"
 dependencies = [
  "brotli-decompressor",
  "fastrand",
@@ -3644,7 +3635,7 @@ dependencies = [
 [[package]]
 name = "twilight-http-ratelimiting"
 version = "0.17.1"
-source = "git+https://github.com/celarye/twilight/?branch=feat%2Fform-buffer#9f4db9b954a5bf098d30b8e48236c9fac5a913e6"
+source = "git+https://github.com/celarye/twilight/#677dc72d5cc0a087d74ddb0ac0ddc8d655ac324e"
 dependencies = [
  "hashbrown 0.16.1",
  "tokio",
@@ -3655,7 +3646,7 @@ dependencies = [
 [[package]]
 name = "twilight-model"
 version = "0.17.1"
-source = "git+https://github.com/celarye/twilight/?branch=feat%2Fform-buffer#9f4db9b954a5bf098d30b8e48236c9fac5a913e6"
+source = "git+https://github.com/celarye/twilight/#677dc72d5cc0a087d74ddb0ac0ddc8d655ac324e"
 dependencies = [
  "bitflags",
  "serde",
@@ -3667,7 +3658,7 @@ dependencies = [
 [[package]]
 name = "twilight-validate"
 version = "0.17.0"
-source = "git+https://github.com/celarye/twilight/?branch=feat%2Fform-buffer#9f4db9b954a5bf098d30b8e48236c9fac5a913e6"
+source = "git+https://github.com/celarye/twilight/#677dc72d5cc0a087d74ddb0ac0ddc8d655ac324e"
 dependencies = [
  "twilight-model",
 ]
@@ -5016,8 +5007,8 @@ dependencies = [
  "cron",
  "dotenvy",
  "fjall",
+ "hashbrown 0.17.1",
  "hotpath",
- "indexmap",
  "reqwest",
  "rustls",
  "semver",
@@ -5029,7 +5020,6 @@ dependencies = [
  "tracing",
  "tracing-appender",
  "tracing-subscriber",
- "twilight-cache-inmemory",
  "twilight-gateway",
  "twilight-http",
  "twilight-model",

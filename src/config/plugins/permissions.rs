@@ -17,3 +17,16 @@ pub struct PluginPermissions {
     #[serde(default)]
     pub services: PluginPermissionsServices,
 }
+
+impl PluginPermissions {
+    pub fn calculate(&mut self) {
+        if self.core.contains(&PluginPermissionsCore::All) {
+            self.core = vec![
+                PluginPermissionsCore::DependencyFunctions,
+                PluginPermissionsCore::Shutdown,
+            ];
+        }
+
+        self.services.calculate();
+    }
+}

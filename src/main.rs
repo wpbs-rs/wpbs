@@ -96,6 +96,8 @@ async fn main() -> Result<ExitCode> {
 
     let database = database::new(&cli.database_directory)?;
 
+    database::cleanup(&database)?;
+
     let message_handler = message_handler(
         database,
         Some(channels.core.runtime_tx),

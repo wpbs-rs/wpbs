@@ -18,7 +18,7 @@ pub enum Keyspaces {
     DependencyFunctions, // K: String (registry_id/plugin_id/function_id:version); V: Uuid
 
     DiscordEvents,              // K: String (DiscordEventKinds:Uuid); V: Uuid
-    DiscordApplicationCommands, // 1) K: String (Uuid:Uuid:count); V: Vec<u8>; 2) K: String (u64); V: Uuid
+    DiscordApplicationCommands, // 1) K: String (Uuid:Uuid); V: Vec<u8>; 2) K: String (u64); V: Uuid
     DiscordMessageComponents,   // K: Uuid; V: Uuid
     DiscordModals,              // K: Uuid; V: Uuid
 }
@@ -164,6 +164,22 @@ pub async fn clear(database: &Database, keyspace: &Keyspaces) -> Result<()> {
     let keyspace = database.keyspace(get_keyspace(keyspace), KeyspaceCreateOptions::default)?;
 
     Ok(spawn_blocking(move || keyspace.clear()).await.unwrap()?)
+}
+
+// TODO: Review if this should this be async
+pub fn cleanup(database: &Database) -> Result<()> {
+    for keyspace in [
+        Keyspaces::DependencyFunctions,
+        Keyspaces::DiscordEvents,
+        Keyspaces::DiscordApplicationCommands,
+    ] {
+        let keyspace =
+            database.keyspace(get_keyspace(&keyspace), KeyspaceCreateOptions::default)?;
+
+        keyspace.clear()?;
+    }
+
+    Ok(())
 }
 
 pub fn persist(database: &Database, persist_mode: PersistMode) -> Result<()> {

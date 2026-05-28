@@ -4,11 +4,12 @@
 mod internal;
 pub mod plugins;
 
-use std::{collections::HashMap, fs, path::PathBuf, sync::Arc};
+use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
 use anyhow::Result;
 use semver::Version;
 use tokio::{
+    fs,
     sync::{
         RwLock,
         mpsc::{UnboundedReceiver, UnboundedSender},
@@ -200,7 +201,7 @@ impl Runtime {
                     .join(&plugin_metadata.id)
                     .join(plugin_metadata.version.to_string());
 
-                let bytes = match fs::read(plugin_directory_path.join("plugin.wasm")) {
+                let bytes = match fs::read(plugin_directory_path.join("plugin.wasm")).await {
                     Ok(bytes) => bytes,
                     Err(err) => {
                         error!(
@@ -224,9 +225,9 @@ impl Runtime {
 
                 let workspace_plugin_directory_path = plugin_directory_path.join("workspace");
 
-                match fs::exists(&workspace_plugin_directory_path) {
+                match fs::try_exists(&workspace_plugin_directory_path).await {
                     Ok(exists) => {
-                        if !exists && let Err(err) = fs::create_dir(&workspace_plugin_directory_path) {
+                        if !exists && let Err(err) = fs::create_dir(&workspace_plugin_directory_path).await {
                             error!(
                                 "Something went wrong while creating the workspace directory for the {} plugin, error: {err}",
                                 plugin_user_id
@@ -503,7 +504,7 @@ impl Runtime {
             )));
         }
 
-        for task in tasks.drain(..) {
+        for task in tasks {
             task.await.unwrap();
         }
 

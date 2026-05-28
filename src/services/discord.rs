@@ -10,10 +10,8 @@ use tokio::{
 };
 use tokio_util::task::TaskTracker;
 use tracing::{error, info};
-use twilight_cache_inmemory::{DefaultInMemoryCache, InMemoryCache};
-use twilight_gateway::{
-    CloseFrame, Config, EventType, EventTypeFlags, MessageSender, Shard, StreamExt,
-};
+//use twilight_cache_inmemory::{DefaultInMemoryCache, InMemoryCache};
+use twilight_gateway::{CloseFrame, Config, EventType, Intents, MessageSender, Shard, StreamExt};
 use twilight_http::Client;
 
 use crate::{
@@ -31,12 +29,17 @@ mod requests;
 
 pub struct Discord {
     http_client: Arc<Client>,
-    shards: Vec<Shard>,
+    shards: Vec<(Shard, Intents)>,
     shard_message_senders: Arc<Vec<MessageSender>>,
-    cache: Arc<InMemoryCache>,
+    //cache: Arc<InMemoryCache>,
     core_tx: Arc<UnboundedSender<CoreMessages>>,
     rx: UnboundedReceiver<DiscordMessages>,
 }
+
+// SAFETY: `Shard` contains a Tokio websocket stream which is not send and sync. This is safe as
+// all shards have been moved out of the struct at the moment it is send or shared across threads.
+unsafe impl Send for Discord {}
+unsafe impl Sync for Discord {}
 
 impl Discord {
     pub async fn new(
@@ -61,16 +64,17 @@ impl Discord {
             })
             .await?;
 
-        let (shards, shard_message_senders) = Self::shard_message_senders(Box::new(shard_iterator));
+        let (shards, shard_message_senders) =
+            Self::get_shard_message_senders(Box::new(shard_iterator), intents);
 
         // TODO: Use the in memory cache
-        let cache = Arc::new(DefaultInMemoryCache::default());
+        //let cache = Arc::new(DefaultInMemoryCache::default());
 
         Ok(Self {
             http_client: Arc::new(http_client),
             shards,
             shard_message_senders: Arc::new(shard_message_senders),
-            cache,
+            //cache,
             core_tx: Arc::new(core_tx),
             rx,
         })
@@ -83,9 +87,10 @@ impl Discord {
 
         for shard in self.shards.drain(..) {
             shard_tasks.push(tokio::spawn(Self::shard_runner(
-                self.cache.clone(),
+                //self.cache.clone(),
                 self.core_tx.clone(),
-                shard,
+                shard.0,
+                shard.1,
             )));
         }
 
@@ -117,16 +122,17 @@ impl Discord {
             http_task_tracker.close();
             http_task_tracker.wait().await;
 
-            Self::shutdown(self.shard_message_senders.clone(), shard_tasks).await;
+            self.shutdown(shard_tasks).await;
         })
     }
 
     async fn shard_runner(
-        _cache: Arc<InMemoryCache>,
+        //cache: Arc<InMemoryCache>,
         core_tx: Arc<UnboundedSender<CoreMessages>>,
         mut shard: Shard,
+        intents: Intents,
     ) {
-        while let Some(item) = shard.next_event(EventTypeFlags::all()).await {
+        while let Some(item) = shard.next_event(intents.into()).await {
             let Ok(event) = item else {
                 error!(
                     "Something went wrong while receiving the next gateway event: {}",
@@ -146,29 +152,27 @@ impl Discord {
         }
     }
 
-    fn shard_message_senders(
+    fn get_shard_message_senders(
         shard_iterator: Box<dyn ExactSizeIterator<Item = Shard>>,
-    ) -> (Vec<Shard>, Vec<MessageSender>) {
+        intents: Intents,
+    ) -> (Vec<(Shard, Intents)>, Vec<MessageSender>) {
         let mut shards = Vec::new();
         let mut shard_message_senders = Vec::new();
 
         for shard in shard_iterator {
             shard_message_senders.push(shard.sender());
-            shards.push(shard);
+            shards.push((shard, intents));
         }
 
         (shards, shard_message_senders)
     }
 
-    async fn shutdown(
-        shard_message_senders: Arc<Vec<MessageSender>>,
-        mut tasks: Vec<JoinHandle<()>>,
-    ) {
-        for shard_message_sender in shard_message_senders.iter() {
+    async fn shutdown(&self, tasks: Vec<JoinHandle<()>>) {
+        for shard_message_sender in self.shard_message_senders.iter() {
             _ = shard_message_sender.close(CloseFrame::NORMAL);
         }
 
-        for task in tasks.drain(..) {
+        for task in tasks {
             task.await.unwrap();
         }
     }

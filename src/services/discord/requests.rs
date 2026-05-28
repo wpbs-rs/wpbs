@@ -68,14 +68,14 @@ impl Discord {
                     Ok(d) => d,
                     Err(err) => {
                         return Err(format!(
-                            "Something went wrong while deserializing RequestGuildMembersInfo, error: {err}",
+                            "Something went wrong while deserializing UpdateVoiceStateInfo, error: {err}",
                         ));
                     }
                 };
 
                 let update_voice_state = UpdateVoiceState {
                     d,
-                    op: OpCode::RequestGuildMembers,
+                    op: OpCode::VoiceStateUpdate,
                 };
 
                 guild_shard_message_sender
@@ -91,18 +91,18 @@ impl Discord {
                     Ok(d) => d,
                     Err(err) => {
                         return Err(format!(
-                            "Something went wrong while deserializing RequestGuildMembersInfo, error: {err}",
+                            "Something went wrong while deserializing UpdatePresencePayload, error: {err}",
                         ));
                     }
                 };
 
-                let update_voice_state = UpdatePresence {
+                let update_presence = UpdatePresence {
                     d,
-                    op: OpCode::RequestGuildMembers,
+                    op: OpCode::PresenceUpdate,
                 };
 
                 guild_shard_message_sender
-                    .command(&update_voice_state)
+                    .command(&update_presence)
                     .unwrap();
 
                 None

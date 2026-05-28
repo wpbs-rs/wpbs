@@ -17,3 +17,16 @@ pub struct PluginPermissionsServices {
     #[serde(default)]
     pub discord: PluginPermissionsDiscord,
 }
+
+impl PluginPermissionsServices {
+    pub fn calculate(&mut self) {
+        if self
+            .job_scheduler
+            .contains(&PluginPermissionsJobScheduler::All)
+        {
+            self.job_scheduler = vec![PluginPermissionsJobScheduler::ScheduledJobs];
+        }
+
+        self.discord.calculate();
+    }
+}
