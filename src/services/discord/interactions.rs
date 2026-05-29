@@ -418,7 +418,7 @@ impl Discord {
                         "Failed to build the create global command request, error: {}",
                         &err
                     );
-                    return;
+                    continue;
                 }
             };
 
@@ -433,7 +433,7 @@ impl Discord {
                         "Something went wrong while requesting a command deletion, error: {}",
                         &err
                     );
-                    return;
+                    continue;
                 }
             }
         }
