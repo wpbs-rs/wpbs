@@ -1,11 +1,10 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 /* Copyright © 2026 Eduard Smet */
 
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{sync::Arc, time::Duration};
 
-use anyhow::{Result, bail};
-use tokio::{sync::RwLock, task::JoinHandle};
-use uuid::Uuid;
+use anyhow::Result;
+use tokio::task::JoinHandle;
 use wasmtime::{
     Config, Engine, EngineWeak, Store,
     component::{HasSelf, Linker},
@@ -14,9 +13,9 @@ use wasmtime_wasi::{DirPerms, FilePerms, ResourceTable, WasiCtxBuilder};
 use wasmtime_wasi_http::WasiHttpCtx;
 
 use crate::runtime::{
-    RuntimePlugin, RuntimePluginStatePre,
-    internal::{InternalRuntime, InternalRuntimeMetadata},
-    plugins::Plugin,
+    RuntimePlugin,
+    internal::InternalRuntime,
+    plugins::{Plugin, RuntimePluginStatePre},
 };
 
 static EPOCH_DEADLINE: u64 = 6;
@@ -60,11 +59,7 @@ impl PluginBuilder {
         }
     }
 
-    pub fn store_builder(
-        &self,
-        plugin_uuid: Uuid,
-        state_pre: &RuntimePluginStatePre,
-    ) -> Store<InternalRuntime> {
+    pub fn store_builder(&self, state_pre: &RuntimePluginStatePre) -> Store<InternalRuntime> {
         let wasi = WasiCtxBuilder::new()
             .envs(&state_pre.environment)
             .preopened_dir(
@@ -79,14 +74,7 @@ impl PluginBuilder {
         let mut store = Store::<InternalRuntime>::new(
             &self.engine,
             InternalRuntime {
-                metadata: InternalRuntimeMetadata {
-                    plugin_uuid,
-                    registry_id: state_pre.registry_id.clone(),
-                    plugin_id: state_pre.id.clone(),
-                    user_id: state_pre.user_id.clone(),
-                    version: state_pre.version.clone(),
-                    permissions: state_pre.permissions.clone(),
-                },
+                metadata: state_pre.metadata.clone(),
                 wasi,
                 wasi_http: WasiHttpCtx::new(),
                 table: ResourceTable::new(),
@@ -103,18 +91,13 @@ impl PluginBuilder {
     #[hotpath::measure]
     pub async fn instantiate(
         &self,
-        plugins: Arc<RwLock<HashMap<Uuid, RuntimePlugin>>>,
-        plugin_id: Uuid,
+        plugin: Arc<RuntimePlugin>,
     ) -> Result<(Plugin, Store<InternalRuntime>)> {
-        if let Some(plugin) = plugins.read().await.get(&plugin_id) {
-            let mut store = self.store_builder(plugin_id, &plugin.state_pre);
+        let mut store = self.store_builder(&plugin.state_pre);
 
-            let instance = plugin.plugin_pre.instantiate_async(&mut store).await?;
+        let instance = plugin.plugin_pre.instantiate_async(&mut store).await?;
 
-            Ok((instance, store))
-        } else {
-            bail!("Runtime has no plugin with the provided ID: {plugin_id}");
-        }
+        Ok((instance, store))
     }
 
     fn engine_increment_epoch(engine_weak: EngineWeak) -> JoinHandle<()> {

@@ -3,9 +3,7 @@
 
 use std::sync::Arc;
 
-use semver::Version;
 use tokio::sync::mpsc::UnboundedSender;
-use uuid::Uuid;
 use wasmtime_wasi::{ResourceTable, WasiCtx, WasiCtxView, WasiView};
 use wasmtime_wasi_http::{
     WasiHttpCtx,
@@ -15,23 +13,14 @@ use wasmtime_wasi_http::{
 mod core;
 mod services;
 
-use crate::{config::plugins::permissions::PluginPermissions, utils::channels::CoreMessages};
+use crate::{runtime::plugins::RuntimePluginMetadata, utils::channels::CoreMessages};
 
 pub struct InternalRuntime {
-    pub metadata: InternalRuntimeMetadata,
+    pub metadata: Arc<RuntimePluginMetadata>,
     pub wasi: WasiCtx,
     pub wasi_http: WasiHttpCtx,
     pub table: ResourceTable,
     pub core_tx: UnboundedSender<CoreMessages>,
-}
-
-pub struct InternalRuntimeMetadata {
-    pub plugin_uuid: Uuid,
-    pub registry_id: Arc<String>,
-    pub plugin_id: Arc<String>,
-    pub user_id: Arc<String>,
-    pub version: Arc<Version>,
-    pub permissions: Arc<PluginPermissions>,
 }
 
 impl WasiView for InternalRuntime {

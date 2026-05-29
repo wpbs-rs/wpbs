@@ -116,7 +116,7 @@ async fn get_cached_plugins(
                             Uuid::new_v4(),
                             AvailablePlugin {
                                 registry_id: registry_id.to_string(),
-                                id: plugin_id.to_string(),
+                                plugin_id: plugin_id.to_string(),
                                 user_id: plugin_uid,
                                 version: plugin_version,
                                 permissions: plugin_options.permissions,
@@ -206,7 +206,7 @@ async fn fetch_non_cached_plugins(
                         Uuid::new_v4(),
                         AvailablePlugin {
                             registry_id: registry_id.to_string(),
-                            id: plugin_id.to_string(),
+                            plugin_id: plugin_id.to_string(),
                             user_id: plugin_uid,
                             version: plugin_version,
                             permissions: plugin_options.permissions,

@@ -29,7 +29,7 @@ pub struct RegistryPluginVersion {
 
 pub struct AvailablePlugin {
     pub registry_id: String,
-    pub id: String,
+    pub plugin_id: String,
     pub user_id: String,
     pub version: Version,
     pub permissions: PluginPermissions,
