@@ -19,7 +19,9 @@ use crate::{
 };
 
 impl Discord {
-    // TODO: Split up in sub functions
+    // TODO:
+    // - Split up in sub functions
+    // - Rework to prevent unneeded deserialization
     #[allow(clippy::too_many_lines)]
     pub async fn handle_event(core_tx: Arc<UnboundedSender<CoreMessages>>, event: Event) {
         match event {

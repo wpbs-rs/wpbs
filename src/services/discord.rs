@@ -87,10 +87,10 @@ impl Discord {
 
         for shard in self.shards.drain(..) {
             shard_tasks.push(tokio::spawn(Self::shard_runner(
-                //self.cache.clone(),
-                self.core_tx.clone(),
                 shard.0,
                 shard.1,
+                //self.cache.clone(),
+                self.core_tx.clone(),
             )));
         }
 
@@ -127,10 +127,10 @@ impl Discord {
     }
 
     async fn shard_runner(
-        //cache: Arc<InMemoryCache>,
-        core_tx: Arc<UnboundedSender<CoreMessages>>,
         mut shard: Shard,
         intents: Intents,
+        //cache: Arc<InMemoryCache>,
+        core_tx: Arc<UnboundedSender<CoreMessages>>,
     ) {
         while let Some(item) = shard.next_event(intents.into()).await {
             let Ok(event) = item else {

@@ -32,6 +32,19 @@ impl DiscordImportFunctionsHost for InternalRuntime {
         let (sender, receiver) = channel();
 
         if TASKS.read().await.services.discord.is_some() {
+            if !self
+                .metadata
+                .permissions
+                .services
+                .discord
+                .requests
+                .contains(&(&request).into())
+            {
+                return Err(HostError::from(
+                    "Plugin does not have the permission to make this Discord request",
+                ));
+            }
+
             self.core_tx
                 .send(CoreMessages::Discord(DiscordMessages::Request(
                     request, sender,
