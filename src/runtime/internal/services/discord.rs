@@ -4,6 +4,7 @@
 use tokio::sync::oneshot::channel;
 
 use crate::{
+    TASKS,
     runtime::{
         internal::InternalRuntime,
         plugins::wpbs::plugin::{
@@ -30,12 +31,16 @@ impl DiscordImportFunctionsHost for InternalRuntime {
     ) -> Result<Option<DiscordResponses>, HostError> {
         let (sender, receiver) = channel();
 
-        self.core_tx
-            .send(CoreMessages::Discord(DiscordMessages::Request(
-                request, sender,
-            )))
-            .unwrap();
+        if TASKS.read().await.services.discord.is_some() {
+            self.core_tx
+                .send(CoreMessages::Discord(DiscordMessages::Request(
+                    request, sender,
+                )))
+                .unwrap();
 
-        receiver.await.unwrap()
+            receiver.await.unwrap()
+        } else {
+            Err(HostError::from("The Discord service is disabled"))
+        }
     }
 }
