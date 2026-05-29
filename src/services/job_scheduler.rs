@@ -4,7 +4,7 @@
 use std::{collections::HashMap, str::FromStr, sync::Arc};
 
 use anyhow::{Result, bail};
-use chrono::{Local, Utc};
+use chrono::Local;
 use cron::Schedule;
 use tokio::{
     sync::{
@@ -91,7 +91,7 @@ impl JobScheduler {
         let schedule = Schedule::from_str(&cron)?;
 
         let task = tokio::spawn(async move {
-            for datetime in schedule.upcoming(Utc) {
+            for datetime in schedule.upcoming(Local) {
                 if let Ok(duration) = datetime.signed_duration_since(Local::now()).to_std() {
                     tokio::time::sleep_until(Instant::now() + duration).await;
                 }
