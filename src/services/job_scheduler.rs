@@ -15,7 +15,7 @@ use tokio::{
     time::Instant,
 };
 use tokio_util::task::TaskTracker;
-use tracing::{error, info};
+use tracing::info;
 use uuid::Uuid;
 
 use crate::utils::channels::{
@@ -92,14 +92,9 @@ impl JobScheduler {
 
         let task = tokio::spawn(async move {
             for datetime in schedule.upcoming(Utc) {
-                let Ok(duration) = datetime.signed_duration_since(Local::now()).to_std() else {
-                    error!(
-                        "The sleep duration for the {id} scheduled job was out of range: {datetime}"
-                    );
-                    break;
-                };
-
-                tokio::time::sleep_until(Instant::now() + duration).await;
+                if let Ok(duration) = datetime.signed_duration_since(Local::now()).to_std() {
+                    tokio::time::sleep_until(Instant::now() + duration).await;
+                }
 
                 let _ = core_tx.send(CoreMessages::Runtime(RuntimeMessages::JobScheduler(
                     RuntimeMessagesJobScheduler::CallScheduledJob(plugin_id, id),
