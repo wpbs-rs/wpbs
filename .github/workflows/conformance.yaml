@@ -1,0 +1,21 @@
+name: Conformance Checks
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.ref }}-${{ github.workflow }}
+  cancel-in-progress: true
+
+jobs:
+  conformance:
+    name: Conformance Checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Branch
+        uses: actions/checkout@v6
+      - name: Run Clippy Checks
+        run: cargo clippy --locked -- -W clippy::pedantic -D warnings
+      - name: Run rustfmt Checks
+        run: cargo fmt --all -- --check

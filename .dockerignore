@@ -7,3 +7,4 @@
 !.cargo/
 !src/
 !wit/
+!bin/

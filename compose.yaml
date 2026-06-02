@@ -2,8 +2,8 @@ name: wpbs-stack
 
 services:
   wpbs:
-    #image: ghcr.io/wpbs-rs/wpbs:dev
-    build: .
+    image: ghcr.io/wpbs-rs/wpbs:latest
+    #build: .
     container_name: wpbs
     environment:
       DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN}
