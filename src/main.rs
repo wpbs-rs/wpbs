@@ -10,7 +10,7 @@ use std::{
     sync::LazyLock,
 };
 
-use anyhow::{Result, bail};
+use anyhow::Result;
 use clap::Parser;
 use fjall::{Database, PersistMode};
 use tokio::{
@@ -320,6 +320,8 @@ fn restart() -> Result<u8> {
     #[cfg(target_family = "unix")]
     {
         use std::os::unix::process::CommandExt;
+
+        use anyhow::bail;
 
         bail!(Command::new(executable_path).args(args).exec());
     }
