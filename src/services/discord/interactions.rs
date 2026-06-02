@@ -433,7 +433,6 @@ impl Discord {
                         "Something went wrong while requesting a command deletion, error: {}",
                         &err
                     );
-                    continue;
                 }
             }
         }
