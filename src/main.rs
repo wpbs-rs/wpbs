@@ -255,18 +255,54 @@ fn shutdown_signal_listener(core_tx: UnboundedSender<CoreMessages>) -> JoinHandl
     debug!("Starting the shutdown signal listener");
 
     tokio::spawn(async move {
-        signal::ctrl_c()
-            .await
-            .expect("failed to listen for the terminal interrupt signal");
-
-        info!("Terminal interrupt signal received, send another to force immediate shutdown");
-
-        tokio::spawn(async {
+        let ctrl_c = async {
             signal::ctrl_c()
                 .await
                 .expect("failed to listen for the terminal interrupt signal");
+        };
 
-            warn!("Second terminal interrupt signal received, forcing immediate shutdown");
+        #[cfg(target_family = "unix")]
+        let terminate = async {
+            signal::unix::signal(signal::unix::SignalKind::terminate())
+                .expect("failed to install the terminate signal handler")
+                .recv()
+                .await;
+        };
+
+        #[cfg(target_family = "windows")]
+        let terminate = std::future::pending::<()>();
+
+        tokio::select! {
+            () = ctrl_c => {},
+            () = terminate => {},
+        }
+
+        info!("Termination signal received, send another to force immediate shutdown");
+
+        tokio::spawn(async {
+            let ctrl_c = async {
+                signal::ctrl_c()
+                    .await
+                    .expect("failed to listen for the terminal interrupt signal");
+            };
+
+            #[cfg(target_family = "unix")]
+            let terminate = async {
+                signal::unix::signal(signal::unix::SignalKind::terminate())
+                    .expect("failed to install the terminate signal handler")
+                    .recv()
+                    .await;
+            };
+
+            #[cfg(target_family = "windows")]
+            let terminate = std::future::pending::<()>();
+
+            tokio::select! {
+                () = ctrl_c => {},
+                () = terminate => {},
+            }
+
+            warn!("Second termination signal received, forcing immediate shutdown");
             process::exit(130);
         });
 
