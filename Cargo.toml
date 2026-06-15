@@ -20,7 +20,7 @@ cron = "0.16.0"
 dotenvy = "0.15.7"
 fjall = "3.1.5"
 hashbrown = "0.17.1"
-hotpath = "0.16.1"
+hotpath = "0.17.0"
 reqwest = { version = "0.13.4", features = ["hickory-dns"] }
 rustls = "0.23.40"
 semver = "1.0.28"
