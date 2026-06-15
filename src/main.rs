@@ -7,7 +7,7 @@ use std::{
     ffi::OsString,
     path::PathBuf,
     process::{self, Command, ExitCode},
-    sync::LazyLock,
+    sync::{Arc, LazyLock},
 };
 
 use anyhow::Result;
@@ -105,11 +105,11 @@ async fn main() -> Result<ExitCode> {
 
     let message_handler = message_handler(
         database,
-        Some(channels.core.runtime_tx),
-        channels.core.job_scheduler_tx,
-        channels.core.discord_tx,
+        Arc::new(RwLock::new(Some(channels.core.runtime_tx))),
+        Arc::new(RwLock::new(channels.core.job_scheduler_tx)),
+        Arc::new(RwLock::new(channels.core.discord_tx)),
+        Arc::new(shutdown_signal_listener),
         channels.core.rx,
-        Some(shutdown_signal_listener),
     );
 
     let setup_result = setup(
@@ -134,15 +134,13 @@ async fn main() -> Result<ExitCode> {
 
 fn message_handler(
     database: Database,
-    mut runtime_tx: Option<UnboundedSender<RuntimeMessages>>,
-    mut job_scheduler_tx: Option<UnboundedSender<JobSchedulerMessages>>,
-    mut discord_tx: Option<UnboundedSender<DiscordMessages>>,
+    runtime_tx: Arc<RwLock<Option<UnboundedSender<RuntimeMessages>>>>,
+    job_scheduler_tx: Arc<RwLock<Option<UnboundedSender<JobSchedulerMessages>>>>,
+    discord_tx: Arc<RwLock<Option<UnboundedSender<DiscordMessages>>>>,
+    shutdown_signal_listener: Arc<JoinHandle<()>>,
     mut rx: UnboundedReceiver<CoreMessages>,
-    mut shutdown_signal_listener: Option<JoinHandle<()>>,
 ) -> JoinHandle<Result<()>> {
     debug!("Starting the message handler");
-
-    let mut shutdown_task = None;
 
     tokio::spawn(async move {
         while let Some(core_message) = rx.recv().await {
@@ -152,50 +150,31 @@ fn message_handler(
                     database::handle_action(&database, database_message).await;
                 }
                 CoreMessages::JobScheduler(job_scheduler_message) => {
-                    if let Some(job_scheduler_tx) = job_scheduler_tx.as_ref() {
+                    if let Some(job_scheduler_tx) = job_scheduler_tx.read().await.as_ref() {
                         job_scheduler_tx.send(job_scheduler_message).unwrap();
                     }
                 }
                 CoreMessages::Discord(discord_message) => {
-                    if let Some(discord_tx) = discord_tx.as_ref() {
+                    if let Some(discord_tx) = discord_tx.read().await.as_ref() {
                         discord_tx.send(discord_message).unwrap();
                     }
                 }
                 CoreMessages::Runtime(runtime_message) => {
-                    if let Some(runtime_tx) = runtime_tx.as_ref() {
+                    if let Some(runtime_tx) = runtime_tx.read().await.as_ref() {
                         runtime_tx.send(runtime_message).unwrap();
                     }
                 }
                 CoreMessages::Shutdown(shutdown_kind) => {
-                    {
-                        let mut shutdown_guard = SHUTDOWN.write().await;
-
-                        if let Some(shutdown_value) = *shutdown_guard {
-                            if (shutdown_value != Shutdown::SigInt
-                                && shutdown_kind == Shutdown::SigInt)
-                                || (shutdown_value == Shutdown::Restart
-                                    && shutdown_kind == Shutdown::Normal)
-                            {
-                                let _ = shutdown_guard.insert(shutdown_kind);
-                            }
-
-                            continue;
-                        }
-
-                        let _ = shutdown_guard.insert(shutdown_kind);
-                    }
-
-                    shutdown_task = Some(tokio::spawn(shutdown(
-                        job_scheduler_tx.take(),
-                        discord_tx.take(),
-                        runtime_tx.take(),
-                        shutdown_signal_listener.take(),
-                    )));
+                    tokio::spawn(shutdown(
+                        shutdown_kind,
+                        runtime_tx.clone(),
+                        job_scheduler_tx.clone(),
+                        discord_tx.clone(),
+                        shutdown_signal_listener.clone(),
+                    ));
                 }
             }
         }
-
-        shutdown_task.unwrap().await.unwrap();
 
         database::persist(&database, PersistMode::SyncAll)
     })
@@ -277,21 +256,41 @@ fn shutdown_signal_listener(core_tx: UnboundedSender<CoreMessages>) -> JoinHandl
 }
 
 async fn shutdown(
-    job_scheduler_tx: Option<UnboundedSender<JobSchedulerMessages>>,
-    discord_tx: Option<UnboundedSender<DiscordMessages>>,
-    runtime_tx: Option<UnboundedSender<RuntimeMessages>>,
-    shutdown_signal_listener: Option<JoinHandle<()>>,
+    shutdown_kind: Shutdown,
+    runtime_tx: Arc<RwLock<Option<UnboundedSender<RuntimeMessages>>>>,
+    job_scheduler_tx: Arc<RwLock<Option<UnboundedSender<JobSchedulerMessages>>>>,
+    discord_tx: Arc<RwLock<Option<UnboundedSender<DiscordMessages>>>>,
+    shutdown_signal_listener: Arc<JoinHandle<()>>,
 ) {
+    let mut shutdown_guard = SHUTDOWN.write().await;
+
+    if let Some(shutdown_value) = *shutdown_guard {
+        if (shutdown_value != Shutdown::SigInt && shutdown_kind == Shutdown::SigInt)
+            || (shutdown_value == Shutdown::Restart && shutdown_kind == Shutdown::Normal)
+        {
+            let _ = shutdown_guard.insert(shutdown_kind);
+        }
+
+        return;
+    }
+
+    let _ = shutdown_guard.insert(shutdown_kind);
+
+    drop(shutdown_guard);
+
     let _setup_guard = SETUP.lock().await;
     let mut tasks = TASKS.write().await;
 
-    drop(runtime_tx.unwrap());
+    drop(runtime_tx.write().await.take().unwrap());
 
     if let Some(runtime) = tasks.runtime.take() {
         runtime.await.unwrap();
     }
 
-    drop((job_scheduler_tx, discord_tx));
+    drop((
+        job_scheduler_tx.write().await.take(),
+        discord_tx.write().await.take(),
+    ));
 
     if let Some(job_scheduler) = tasks.services.job_scheduler.take() {
         job_scheduler.await.unwrap();
@@ -301,8 +300,7 @@ async fn shutdown(
         discord.await.unwrap();
     }
 
-    shutdown_signal_listener.as_ref().unwrap().abort();
-    let _ = shutdown_signal_listener.unwrap().await;
+    shutdown_signal_listener.abort();
 }
 
 fn restart() -> Result<u8> {
