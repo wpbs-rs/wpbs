@@ -17,7 +17,7 @@ use tokio::{
     task::JoinHandle,
 };
 use tokio_util::task::TaskTracker;
-use tracing::{error, info};
+use tracing::{debug, error, info};
 use uuid::Uuid;
 use wasmtime::component::Component;
 
@@ -339,6 +339,11 @@ impl Runtime {
         params: Vec<u8>,
         response_sender: Sender<Result<Vec<u8>, PluginError>>,
     ) {
+        debug!(
+            "Calling the {signature} dependency function of the {} plugin",
+            plugin.state_pre.metadata.user_id
+        );
+
         let (instance, store) = match plugin_builder.instantiate(plugin.clone()).await {
             Ok((instance, store)) => (instance, store),
             Err(err) => {
@@ -380,6 +385,11 @@ impl Runtime {
         plugin: Arc<RuntimePlugin>,
         job_id: Uuid,
     ) {
+        debug!(
+            "Calling the {job_id} scheduled job of the {} plugin",
+            plugin.state_pre.metadata.user_id
+        );
+
         let (instance, store) = match plugin_builder.instantiate(plugin.clone()).await {
             Ok((instance, store)) => (instance, store),
             Err(err) => {
@@ -412,6 +422,11 @@ impl Runtime {
         plugin: Arc<RuntimePlugin>,
         results: DiscordRegistrationsResultApplicationCommands,
     ) {
+        debug!(
+            "Calling the {} plugin to inform them about their Discord application command registration results",
+            plugin.state_pre.metadata.user_id
+        );
+
         let (instance, store) = match plugin_builder.instantiate(plugin.clone()).await {
             Ok((instance, store)) => (instance, store),
             Err(err) => {
@@ -437,6 +452,11 @@ impl Runtime {
         plugin: Arc<RuntimePlugin>,
         event: DiscordEvents,
     ) {
+        debug!(
+            "Calling the {} plugin to inform them about a Discord event",
+            plugin.state_pre.metadata.user_id
+        );
+
         let (instance, store) = match plugin_builder.instantiate(plugin.clone()).await {
             Ok((instance, store)) => (instance, store),
             Err(err) => {
@@ -465,6 +485,11 @@ impl Runtime {
     }
 
     async fn call_shutdown(plugin_builder: Arc<PluginBuilder>, plugin: Arc<RuntimePlugin>) {
+        debug!(
+            "Calling shutdown for the {} plugin",
+            plugin.state_pre.metadata.user_id
+        );
+
         let mut store = plugin_builder.store_builder(&plugin.state_pre);
 
         let instance = match plugin.plugin_pre.instantiate_async(&mut store).await {
@@ -499,6 +524,8 @@ impl Runtime {
 
     // TODO: Delay calling shutdown until all plugin calls have finished.
     async fn shutdown(self) {
+        info!("Shutting the WASI runtime down");
+
         let task_tracker = TaskTracker::new();
 
         for (_plugin_uuid, plugin) in self.plugins.write().await.drain() {

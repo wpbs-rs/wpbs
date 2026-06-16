@@ -175,10 +175,7 @@ impl Discord {
                 )
                 .await;
             }
-            _ => debug!(
-                "Received unsupported event: {}",
-                &event.kind().name().unwrap_or("undefined")
-            ),
+            _ => debug!("Received unsupported event: {:?}", event.kind()),
         }
     }
 

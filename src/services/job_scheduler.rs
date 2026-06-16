@@ -125,6 +125,7 @@ impl JobScheduler {
 
     async fn shutdown(&self) {
         info!("Shutting the job scheduler service down");
+
         for job in self.jobs.write().await.drain() {
             job.1.abort();
 
