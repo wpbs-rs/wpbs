@@ -32,15 +32,15 @@ tokio-util = { version = "0.7.18", features = ["rt"] }
 tracing = "0.1.44"
 tracing-appender = "0.2.5"
 tracing-subscriber = "0.3.23"
-twilight-cache-inmemory = { git = "https://github.com/celarye/twilight/" }
-twilight-gateway = { git = "https://github.com/celarye/twilight/", features = [
+twilight-cache-inmemory = { git = "https://github.com/wpbs-rs/twilight/" }
+twilight-gateway = { git = "https://github.com/wpbs-rs/twilight/", features = [
   "simd-json",
 ] }
-twilight-http = { git = "https://github.com/celarye/twilight/", features = [
+twilight-http = { git = "https://github.com/wpbs-rs/twilight/", features = [
   "simd-json",
   "hickory",
 ] }
-twilight-model = { git = "https://github.com/celarye/twilight/" }
+twilight-model = { git = "https://github.com/wpbs-rs/twilight/" }
 url = "2.5.8"
 uuid = "1.23.3"
 wasmtime = "45.0.1"
