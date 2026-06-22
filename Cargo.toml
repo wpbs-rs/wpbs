@@ -16,7 +16,7 @@ anyhow = "1.0.102"
 bytes = "1.11.1"
 chrono = "0.4.45"
 clap = { version = "4.6.1", features = ["derive"] }
-cron = "0.16.0"
+cron = "0.17.0"
 dotenvy = "0.15.7"
 fjall = "3.1.5"
 hashbrown = "0.17.1"
