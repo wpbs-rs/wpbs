@@ -16,11 +16,11 @@ anyhow = "1.0.102"
 bytes = "1.11.1"
 chrono = "0.4.45"
 clap = { version = "4.6.1", features = ["derive"] }
-cron = "0.16.0"
+cron = "0.17.0"
 dotenvy = "0.15.7"
 fjall = "3.1.5"
 hashbrown = "0.17.1"
-hotpath = "0.17.0"
+hotpath = "0.18.0"
 reqwest = { version = "0.13.4", features = ["hickory-dns"] }
 rustls = "0.23.40"
 semver = "1.0.28"
@@ -43,9 +43,9 @@ twilight-http = { git = "https://github.com/wpbs-rs/twilight/", features = [
 twilight-model = { git = "https://github.com/wpbs-rs/twilight/" }
 url = "2.5.8"
 uuid = "1.23.3"
-wasmtime = "45.0.1"
-wasmtime-wasi = "45.0.1"
-wasmtime-wasi-http = "45.0.1"
+wasmtime = "46.0.1"
+wasmtime-wasi = "46.0.1"
+wasmtime-wasi-http = "46.0.1"
 
 [profile.release]
 lto = "fat"
