@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 /* Copyright © 2026 Eduard Smet */
 
-use std::sync::Arc;
+use std::{iter, sync::Arc};
 
 use anyhow::Result;
 use tokio::{
@@ -11,7 +11,9 @@ use tokio::{
 use tokio_util::task::TaskTracker;
 use tracing::{error, info};
 use twilight_cache_inmemory::{InMemoryCache, ResourceType};
-use twilight_gateway::{CloseFrame, Config, EventType, Intents, MessageSender, Shard, StreamExt};
+use twilight_gateway::{
+    CloseFrame, Config, EventType, EventTypeFlags, Intents, MessageSender, Shard, StreamExt,
+};
 use twilight_http::Client;
 
 use crate::{
@@ -58,14 +60,17 @@ impl Discord {
 
         let config = Config::new(secrets.bot_token, intents);
 
-        let shard_iterator =
-            twilight_gateway::create_recommended(&http_client, config, |_, builder| {
-                builder.build()
-            })
-            .await?;
+        let connection_info = http_client.gateway().authed().await?.model().await?;
 
-        let (shards, shard_message_senders) =
-            Self::get_shard_message_senders(Box::new(shard_iterator), intents);
+        let (shard_message_senders, shards) =
+            twilight_gateway::bucket(0, 1, connection_info.shards)
+                .zip(iter::repeat_n(
+                    config.clone(),
+                    connection_info.shards as usize,
+                ))
+                .map(|(shard_id, config)| Shard::with_config(shard_id, config))
+                .map(|shard| (shard.sender(), (shard, intents)))
+                .collect::<(Vec<_>, Vec<_>)>();
 
         let cache_resource_type = ResourceType::USER_CURRENT | ResourceType::GUILD;
 
@@ -141,7 +146,9 @@ impl Discord {
         cache: Arc<InMemoryCache>,
         core_tx: Arc<UnboundedSender<CoreMessages>>,
     ) {
-        while let Some(item) = shard.next_event(intents.into()).await {
+        let event_type_flags = EventTypeFlags::BASE | intents.into();
+
+        while let Some(item) = shard.next_event(event_type_flags).await {
             let Ok(event) = item else {
                 error!(
                     "Something went wrong while receiving the next gateway event: {}",
@@ -159,21 +166,6 @@ impl Discord {
 
             tokio::spawn(Self::handle_event(core_tx.clone(), event));
         }
-    }
-
-    fn get_shard_message_senders(
-        shard_iterator: Box<dyn ExactSizeIterator<Item = Shard>>,
-        intents: Intents,
-    ) -> (Vec<(Shard, Intents)>, Vec<MessageSender>) {
-        let mut shards = Vec::new();
-        let mut shard_message_senders = Vec::new();
-
-        for shard in shard_iterator {
-            shard_message_senders.push(shard.sender());
-            shards.push((shard, intents));
-        }
-
-        (shards, shard_message_senders)
     }
 
     async fn shutdown(&self, tasks: Vec<JoinHandle<()>>) {

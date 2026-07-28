@@ -28,7 +28,7 @@ impl Config {
         let file_bytes = fs::read(file_path)?;
 
         // TODO: Add environment variable interpolation
-        let mut config = serde_yaml_ng::from_slice::<Config>(&file_bytes)?;
+        let mut config = yaml_serde::from_slice::<Config>(&file_bytes)?;
 
         config
             .plugins

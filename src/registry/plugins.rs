@@ -5,7 +5,7 @@ use std::collections::HashMap;
 
 use semver::Version;
 use serde::Deserialize;
-use serde_yaml_ng::Value;
+use yaml_serde::Value;
 
 use crate::config::plugins::permissions::PluginPermissions;
 

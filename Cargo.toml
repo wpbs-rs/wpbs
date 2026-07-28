@@ -6,29 +6,23 @@ authors = ["Eduard Smet <contact@celarye.dev>"]
 license = "GPL-3.0-or-later"
 edition = "2024"
 
-[features]
-hotpath = ["hotpath/hotpath"]
-hotpath-cpu = ["hotpath/hotpath-cpu"]
-hotpath-alloc = ["hotpath/hotpath-alloc"]
-
 [dependencies]
-anyhow = "1.0.102"
-bytes = "1.11.1"
+anyhow = "1.0.104"
+bytes = "1.12.1"
 chrono = "0.4.45"
-clap = { version = "4.6.1", features = ["derive"] }
-cron = "0.16.0"
+clap = { version = "4.6.4", features = ["derive"] }
+cron = "0.17.0"
 dotenvy = "0.15.7"
-fjall = "3.1.5"
+fjall = "3.1.8"
 hashbrown = "0.17.1"
-hotpath = "0.17.0"
+hotpath = "0.22.0"
 reqwest = { version = "0.13.4", features = ["hickory-dns"] }
-rustls = "0.23.40"
+rustls = "0.23.42"
 semver = "1.0.28"
-serde = "1.0.228"
-serde_yaml_ng = "0.10.0" # Should replace this with a better maintained YAML 1.2 supporting alternative
+serde = "1.0.229"
 sonic-rs = "0.5.8"
-tokio = { version = "1.52.3", features = ["full"] }
-tokio-util = { version = "0.7.18", features = ["rt"] }
+tokio = { version = "1.53.1", features = ["full"] }
+tokio-util = { version = "0.7.19", features = ["rt"] }
 tracing = "0.1.44"
 tracing-appender = "0.2.5"
 tracing-subscriber = "0.3.23"
@@ -42,10 +36,16 @@ twilight-http = { git = "https://github.com/wpbs-rs/twilight/", features = [
 ] }
 twilight-model = { git = "https://github.com/wpbs-rs/twilight/" }
 url = "2.5.8"
-uuid = "1.23.3"
-wasmtime = "45.0.1"
-wasmtime-wasi = "45.0.1"
-wasmtime-wasi-http = "45.0.1"
+uuid = "1.24.0"
+wasmtime = "47.0.2"
+wasmtime-wasi = "47.0.2"
+wasmtime-wasi-http = "47.0.2"
+yaml_serde = "0.10.4"
+
+[features]
+hotpath = ["hotpath/hotpath"]
+hotpath-cpu = ["hotpath/hotpath-cpu"]
+hotpath-alloc = ["hotpath/hotpath-alloc"]
 
 [profile.release]
 lto = "fat"
