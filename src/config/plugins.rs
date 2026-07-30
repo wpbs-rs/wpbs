@@ -13,7 +13,6 @@ pub mod permissions;
 #[derive(Deserialize)]
 pub struct ConfigPlugin {
     pub plugin: String,
-    pub cache: Option<bool>,
     #[serde(default)]
     pub permissions: PluginPermissions,
     #[serde(default)]

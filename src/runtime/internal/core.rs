@@ -142,7 +142,7 @@ impl CoreImportFunctionsHost for InternalRuntime {
 
                             let key = format!(
                                 "{}/{}/{dependency_function_registration}:{}",
-                                self.metadata.registry_id,
+                                self.metadata.namespace_id,
                                 self.metadata.plugin_id,
                                 self.metadata.version
                             );

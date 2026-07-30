@@ -26,7 +26,6 @@ use tracing::{debug, error, info, warn};
 mod cli;
 mod config;
 mod database;
-mod http;
 mod registry;
 mod runtime;
 mod services;
@@ -104,7 +103,7 @@ async fn main() -> Result<ExitCode> {
     database::cleanup(&database)?;
 
     let message_handler = message_handler(
-        database,
+        database.clone(),
         Arc::new(RwLock::new(Some(channels.core.runtime_tx))),
         Arc::new(RwLock::new(channels.core.job_scheduler_tx)),
         Arc::new(RwLock::new(channels.core.discord_tx)),
@@ -113,9 +112,8 @@ async fn main() -> Result<ExitCode> {
     );
 
     let setup_result = setup(
-        cli.http_client_timeout_seconds,
         cli.plugin_directory,
-        cli.cache,
+        database,
         channels.services,
         channels.runtime,
         config,
@@ -181,19 +179,20 @@ fn message_handler(
 }
 
 async fn setup(
-    http_client_timeout_seconds: u64,
     plugin_directory_path: PathBuf,
-    cache: bool,
+    database: Database,
     service_channels: ChannelsServices,
     runtime_channels: ChannelsRuntime,
     config: Config,
     secrets: Secrets,
 ) -> Result<()> {
-    let available_plugins = registry::registry_get_plugins(
-        http_client_timeout_seconds,
+    let config_name = Arc::new(config.name);
+
+    let available_plugins = registry::get_plugins(
+        database,
+        config_name.clone(),
         config.plugins,
-        plugin_directory_path.clone(),
-        cache,
+        &plugin_directory_path,
     )
     .await?;
 
@@ -203,9 +202,10 @@ async fn setup(
 
     runtime
         .initialize_plugins(
+            plugin_directory_path,
+            config_name,
             available_plugins,
             runtime_channels.core_tx,
-            plugin_directory_path,
         )
         .await?;
 

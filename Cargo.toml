@@ -14,6 +14,7 @@ clap = { version = "4.6.4", features = ["derive"] }
 cron = "0.17.0"
 dotenvy = "0.15.7"
 fjall = "3.1.8"
+futures-util = "0.3.33"
 hashbrown = "0.17.1"
 hotpath = "0.22.0"
 reqwest = { version = "0.13.4", features = ["hickory-dns"] }
@@ -37,6 +38,7 @@ twilight-http = { git = "https://github.com/wpbs-rs/twilight/", features = [
 twilight-model = { git = "https://github.com/wpbs-rs/twilight/" }
 url = "2.5.8"
 uuid = "1.24.0"
+wasm-pkg-client = { version = "0.16.0", default-features = false }
 wasmtime = "47.0.2"
 wasmtime-wasi = "47.0.2"
 wasmtime-wasi-http = "47.0.2"

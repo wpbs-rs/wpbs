@@ -14,6 +14,8 @@ use tokio::task::spawn_blocking;
 use tracing::{debug, info};
 
 pub enum Keyspaces {
+    Plugins, // K: String (namespace:name@version:stack:name); V: Uuid
+
     PluginStore, // K: String (Uuid:String); V: Vec<u8>
 
     DependencyFunctions, // K: String (registry_id/plugin_id/function_id:version); V: Uuid
@@ -191,8 +193,9 @@ pub fn persist(database: &Database, persist_mode: PersistMode) -> Result<()> {
     Ok(database.persist(persist_mode)?)
 }
 
-fn get_keyspace(keyspace: &Keyspaces) -> &'static str {
+pub fn get_keyspace(keyspace: &Keyspaces) -> &'static str {
     match keyspace {
+        Keyspaces::Plugins => "plugins",
         Keyspaces::PluginStore => "plugin_store",
         Keyspaces::DependencyFunctions => "dependency_functions",
 

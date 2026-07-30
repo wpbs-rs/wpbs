@@ -19,6 +19,7 @@ use tokio::{
 use tokio_util::task::TaskTracker;
 use tracing::{debug, error, info};
 use uuid::Uuid;
+use wasm_pkg_client::ContentDigest;
 use wasmtime::component::Component;
 
 use crate::{
@@ -168,9 +169,10 @@ impl Runtime {
     #[hotpath::measure]
     pub async fn initialize_plugins(
         &self,
+        plugins_directory_path: PathBuf,
+        config_name: Arc<String>,
         available_plugins: Vec<(Uuid, AvailablePlugin)>,
         core_tx: UnboundedSender<CoreMessages>,
-        plugins_directory_path: PathBuf,
     ) -> Result<()> {
         info!("Initializing the plugins");
 
@@ -180,18 +182,34 @@ impl Runtime {
 
         // TODO: Bail on no successful plugin initializations
         for (plugin_uuid, plugin_metadata) in available_plugins {
+            let plugins_directory_path = plugins_directory_path.clone();
+            let config_name = config_name.clone();
             let plugins = self.plugins.clone();
             let plugin_builder = self.plugin_builder.clone();
             let core_tx = core_tx.clone();
-            let plugins_directory_path = plugins_directory_path.clone();
 
             tasks.push(tokio::spawn(async move {
-                let plugin_directory_path = plugins_directory_path
-                    .join(&plugin_metadata.registry_id)
-                    .join(&plugin_metadata.plugin_id)
-                    .join(plugin_metadata.version.to_string());
+                let plugin_binary_path = if let Some(content_digest) = &plugin_metadata.content_digest {
+                    match content_digest {
+                        ContentDigest::Sha256 { hex } => plugins_directory_path.join("binaries").join("remote").join(format!("sha256:{hex}"))
+                    }
 
-                let bytes = match fs::read(plugin_directory_path.join("plugin.wasm")).await {
+                } else {
+                    plugins_directory_path
+                        .join("binaries")
+                        .join(&plugin_metadata.namespace_id)
+                        .join(&plugin_metadata.plugin_id)
+                        .join(plugin_metadata.version.to_string()).join("plugin.wasm")
+                };
+
+                // TODO: Make this configurable
+                let plugin_workspace_path = plugins_directory_path
+                    .join("workspaces")
+                    .join(&*config_name)
+                    .join(&plugin_metadata.user_id)
+                    .join("workspace");
+
+                let bytes = match fs::read(plugin_binary_path).await {
                     Ok(bytes) => bytes,
                     Err(err) => {
                         error!(
@@ -213,25 +231,12 @@ impl Runtime {
                     }
                 };
 
-                let workspace_plugin_directory_path = plugin_directory_path.join("workspace");
-
-                match fs::try_exists(&workspace_plugin_directory_path).await {
-                    Ok(exists) => {
-                        if !exists && let Err(err) = fs::create_dir(&workspace_plugin_directory_path).await {
-                            error!(
-                                "Something went wrong while creating the workspace directory for the {} plugin, error: {err}",
-                                plugin_metadata.user_id
-                            );
-                            return;
-                        }
-                    }
-                    Err(err) => {
-                        error!(
-                            "Something went wrong while checking if the workspace directory of the {} plugin exists, error: {err}",
-                            plugin_metadata.user_id
-                        );
-                        return;
-                    }
+                if let Err(err) = fs::create_dir_all(&plugin_workspace_path).await {
+                    error!(
+                        "Something went wrong while creating the workspace directory for the {} plugin, error: {err}",
+                        plugin_metadata.user_id
+                    );
+                    return;
                 }
 
                 let instance_pre = match plugin_builder.linker.instantiate_pre(&component) {
@@ -260,17 +265,17 @@ impl Runtime {
                 let state_pre = RuntimePluginStatePre {
                     metadata: Arc::new(RuntimePluginMetadata {
                         plugin_uuid,
-                        registry_id: plugin_metadata.registry_id,
+                        namespace_id: plugin_metadata.namespace_id,
                         plugin_id: plugin_metadata.plugin_id,
-                        user_id: plugin_metadata.user_id,
                         version: plugin_metadata.version,
+                        user_id: plugin_metadata.user_id,
                         permissions: plugin_metadata.permissions,
                     }),
                     environment: plugin_metadata
                         .environment
                         .into_iter()
                         .collect::<Box<[(String, String)]>>(),
-                    workspace_directory_path: workspace_plugin_directory_path,
+                    workspace_directory_path: plugin_workspace_path,
                     core_tx,
                 };
 
@@ -327,10 +332,6 @@ impl Runtime {
 
         Ok(())
     }
-
-    // TODO:
-    // - Remove trapped plugins
-    // - Make plugin metadata accessible
 
     async fn call_dependency_function(
         plugin_builder: Arc<PluginBuilder>,

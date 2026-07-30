@@ -30,9 +30,9 @@ pub struct RuntimePluginStatePre {
 
 pub struct RuntimePluginMetadata {
     pub plugin_uuid: Uuid,
-    pub registry_id: String,
+    pub namespace_id: String,
     pub plugin_id: String,
-    pub user_id: String,
     pub version: Version,
+    pub user_id: String,
     pub permissions: PluginPermissions,
 }
