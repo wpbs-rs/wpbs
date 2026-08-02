@@ -25,20 +25,16 @@ use wasm_pkg_client::{
     caching::{CachingClient, FileCache},
 };
 
-use crate::{
-    config::plugins::ConfigPlugin,
-    database::{Keyspaces, get_keyspace},
-    registry::plugins::AvailablePlugin,
-};
+use crate::{config::plugins::ConfigPlugin, registry::plugins::AvailablePlugin};
 
 static DEFAULT_NAMESPACE_ID: &str = "wpbs-rs";
 
 #[hotpath::measure]
 pub async fn get_plugins(
+    plugin_directory_path: &Path,
     database: Database,
     config_name: Arc<String>,
     config_plugins: HashMap<String, ConfigPlugin>,
-    plugin_directory_path: &Path,
 ) -> Result<Vec<(Uuid, AvailablePlugin)>> {
     info!("Getting all plugins from their respective registries");
 
@@ -49,10 +45,7 @@ pub async fn get_plugins(
 
     let mut plugin_tasks: Vec<JoinHandle<Result<(Uuid, AvailablePlugin)>>> = Vec::new();
 
-    let plugins_keyspace = database.keyspace(
-        get_keyspace(&Keyspaces::Plugins),
-        KeyspaceCreateOptions::default,
-    )?;
+    let plugins_keyspace = database.keyspace("plugins", KeyspaceCreateOptions::default)?;
 
     let plugin_directory_path = Arc::new(plugin_directory_path.join("binaries").join("local"));
     for (plugin_user_id, plugin_config) in config_plugins {
@@ -69,14 +62,7 @@ pub async fn get_plugins(
             if namespace_id == "local" {
                 get_local_plugin(plugin_directory_path, &plugin_id, &plugin_version).await?;
 
-                let uuid = get_plugin_uuid(
-                    &plugins_keyspace,
-                    &namespace_id,
-                    &plugin_id,
-                    &plugin_version,
-                    &config_name,
-                    &plugin_user_id,
-                )?;
+                let uuid = get_plugin_uuid(&plugins_keyspace, &config_name, &plugin_user_id)?;
 
                 return Ok((
                     uuid,
@@ -96,14 +82,7 @@ pub async fn get_plugins(
             let release =
                 fetch_plugin(caching_client, &namespace_id, &plugin_id, &plugin_version).await?;
 
-            let uuid = get_plugin_uuid(
-                &plugins_keyspace,
-                &namespace_id,
-                &plugin_id,
-                &plugin_version,
-                &config_name,
-                &plugin_user_id,
-            )?;
+            let uuid = get_plugin_uuid(&plugins_keyspace, &config_name, &plugin_user_id)?;
 
             Ok((
                 uuid,
@@ -206,13 +185,10 @@ async fn fetch_plugin(
 
 fn get_plugin_uuid(
     plugins_keyspace: &Keyspace,
-    namespace_id: &str,
-    plugin_id: &str,
-    plugin_version: &Version,
     config_name: &str,
     plugin_user_id: &str,
 ) -> Result<Uuid> {
-    let key = format!("{namespace_id}:{plugin_id}@{plugin_version}:{config_name}:{plugin_user_id}");
+    let key = format!("{config_name}:{plugin_user_id}");
 
     let uuid = if let Ok(puuid_bytes) = plugins_keyspace.get(&key)
         && let Some(uuid_bytes) = puuid_bytes

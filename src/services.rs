@@ -2,6 +2,7 @@
 /* Copyright © 2026 Eduard Smet */
 
 use anyhow::Result;
+use fjall::Database;
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::{
@@ -20,6 +21,7 @@ pub mod job_scheduler;
 pub async fn setup(
     config: ConfigServices,
     secrets: SecretsServices,
+    database: Database,
     channels: ChannelsServices,
 ) -> Result<()> {
     // TODO:
@@ -37,6 +39,7 @@ pub async fn setup(
         let discord = Discord::new(
             config.discord.settings,
             secrets.discord.unwrap(),
+            database,
             discord_channels.core_tx,
             discord_channels.rx,
         )

@@ -12,7 +12,7 @@ use std::{
 
 use anyhow::Result;
 use clap::Parser;
-use fjall::{Database, PersistMode};
+use fjall::Database;
 use tokio::{
     signal,
     sync::{
@@ -100,8 +100,6 @@ async fn main() -> Result<ExitCode> {
 
     let database = database::new(&cli.database_directory)?;
 
-    database::cleanup(&database)?;
-
     let message_handler = message_handler(
         database.clone(),
         Arc::new(RwLock::new(Some(channels.core.runtime_tx))),
@@ -143,10 +141,6 @@ fn message_handler(
     tokio::spawn(async move {
         while let Some(core_message) = rx.recv().await {
             match core_message {
-                CoreMessages::DatabaseModule(database_message) => {
-                    // TODO: Move behind a channel to keep the thread clear
-                    database::handle_action(&database, database_message).await;
-                }
                 CoreMessages::JobScheduler(job_scheduler_message) => {
                     if let Some(job_scheduler_tx) = job_scheduler_tx.read().await.as_ref() {
                         job_scheduler_tx.send(job_scheduler_message).unwrap();
@@ -174,7 +168,7 @@ fn message_handler(
             }
         }
 
-        database::persist(&database, PersistMode::SyncAll)
+        Ok(database.persist(fjall::PersistMode::SyncAll)?)
     })
 }
 
@@ -189,14 +183,20 @@ async fn setup(
     let config_name = Arc::new(config.name);
 
     let available_plugins = registry::get_plugins(
-        database,
+        &plugin_directory_path,
+        database.clone(),
         config_name.clone(),
         config.plugins,
-        &plugin_directory_path,
     )
     .await?;
 
-    services::setup(config.services, secrets.services, service_channels).await?;
+    services::setup(
+        config.services,
+        secrets.services,
+        database.clone(),
+        service_channels,
+    )
+    .await?;
 
     let runtime = Runtime::new(runtime_channels.rx);
 
@@ -205,6 +205,7 @@ async fn setup(
             plugin_directory_path,
             config_name,
             available_plugins,
+            database,
             runtime_channels.core_tx,
         )
         .await?;

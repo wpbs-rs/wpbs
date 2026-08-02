@@ -41,7 +41,7 @@ interface discord-import-types {
     }
 
     // Map keys can only be component model primitives
-    type discord-registrations-events-result = list<tuple<discord-event-kinds, result<_, host-error>>>;
+    type discord-registrations-events-result = result<list<tuple<discord-event-kinds, result<_, host-error>>>, host-error>;
 
     record discord-registrations-interactions-result {
         application-commands: option<result<_, host-error>>,

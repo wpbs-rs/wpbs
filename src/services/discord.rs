@@ -4,9 +4,10 @@
 use std::{iter, sync::Arc};
 
 use anyhow::Result;
+use fjall::{Database, KeyspaceCreateOptions};
 use tokio::{
     sync::mpsc::{UnboundedReceiver, UnboundedSender},
-    task::JoinHandle,
+    task::{self, JoinHandle},
 };
 use tokio_util::task::TaskTracker;
 use tracing::{error, info};
@@ -34,6 +35,7 @@ pub struct Discord {
     shards: Vec<(Shard, Intents)>,
     shard_message_senders: Arc<Vec<MessageSender>>,
     cache: Arc<InMemoryCache>,
+    database: Database,
     core_tx: Arc<UnboundedSender<CoreMessages>>,
     rx: UnboundedReceiver<DiscordMessages>,
 }
@@ -47,10 +49,21 @@ impl Discord {
     pub async fn new(
         config: ConfigDiscordSettings,
         secrets: SecretsDiscord,
+        database: Database,
         core_tx: UnboundedSender<CoreMessages>,
         rx: UnboundedReceiver<DiscordMessages>,
     ) -> Result<Self> {
         info!("Creating the Discord service");
+
+        database
+            .keyspace("discord_events", KeyspaceCreateOptions::default)?
+            .clear()?;
+        database
+            .keyspace(
+                "discord_application_commands",
+                KeyspaceCreateOptions::default,
+            )?
+            .clear()?;
 
         let intents = InternalIntents::from(config.intents).0;
 
@@ -86,6 +99,7 @@ impl Discord {
             shards,
             shard_message_senders: Arc::new(shard_message_senders),
             cache,
+            database,
             core_tx: Arc::new(core_tx),
             rx,
         })
@@ -100,10 +114,11 @@ impl Discord {
 
         for shard in self.shards.drain(..) {
             shard_tasks.push(tokio::spawn(Self::shard_runner(
-                shard.0,
-                shard.1,
+                self.database.clone(),
                 self.cache.clone(),
                 self.core_tx.clone(),
+                shard.0,
+                shard.1,
             )));
         }
 
@@ -112,6 +127,7 @@ impl Discord {
                 match message {
                     DiscordMessages::RegisterApplicationCommands => {
                         http_task_tracker.spawn(Self::application_command_registrations(
+                            self.database.clone(),
                             self.http_client.clone(),
                             self.cache.clone(),
                             self.core_tx.clone(),
@@ -141,10 +157,11 @@ impl Discord {
     }
 
     async fn shard_runner(
-        mut shard: Shard,
-        intents: Intents,
+        database: Database,
         cache: Arc<InMemoryCache>,
         core_tx: Arc<UnboundedSender<CoreMessages>>,
+        mut shard: Shard,
+        intents: Intents,
     ) {
         let event_type_flags = EventTypeFlags::BASE | intents.into();
 
@@ -164,7 +181,9 @@ impl Discord {
 
             cache.update(&event);
 
-            tokio::spawn(Self::handle_event(core_tx.clone(), event));
+            let database = database.clone();
+            let core_tx = core_tx.clone();
+            task::spawn_blocking(move || Self::handle_event(&database, &core_tx.clone(), &event));
         }
     }
 

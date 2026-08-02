@@ -3,10 +3,10 @@
 
 use std::{collections::HashMap as StdHashMap, str::FromStr, sync::Arc};
 
-use anyhow::Result;
-use fjall::Slice;
+use anyhow::{Result, bail};
+use fjall::{Database, Guard, KeyspaceCreateOptions, Slice};
 use hashbrown::{Equivalent, HashMap};
-use tokio::sync::{mpsc::UnboundedSender, oneshot::channel};
+use tokio::sync::mpsc::UnboundedSender;
 use tracing::{error, info};
 use twilight_cache_inmemory::InMemoryCache;
 use twilight_http::{Client, request::Request, routing::Route};
@@ -20,9 +20,8 @@ use twilight_model::{
 use uuid::Uuid;
 
 use crate::{
-    database::Keyspaces,
     services::discord::Discord,
-    utils::channels::{CoreMessages, DatabaseMessages, RuntimeMessages, RuntimeMessagesDiscord},
+    utils::channels::{CoreMessages, RuntimeMessages, RuntimeMessagesDiscord},
 };
 
 #[derive(Eq, Hash, PartialEq)]
@@ -41,42 +40,28 @@ impl Discord {
     // TODO: Split up in sub functions
     #[allow(clippy::too_many_lines)]
     pub async fn application_command_registrations(
+        database: Database,
         http_client: Arc<Client>,
         cache: Arc<InMemoryCache>,
         core_tx: Arc<UnboundedSender<CoreMessages>>,
-    ) {
-        let (entries_sender, entries_receiver) = channel();
+    ) -> Result<()> {
+        let application_command_keyspace = database.keyspace(
+            "discord_application_commands",
+            KeyspaceCreateOptions::default,
+        )?;
 
-        core_tx
-            .send(CoreMessages::DatabaseModule(
-                DatabaseMessages::GetAllEntries(
-                    Keyspaces::DiscordApplicationCommands,
-                    entries_sender,
-                ),
-            ))
-            .unwrap();
-
-        let entries: Vec<(Slice, Slice)> = entries_receiver.await.unwrap().unwrap();
+        let entries = application_command_keyspace
+            .iter()
+            .map(Guard::into_inner)
+            .collect::<Result<Vec<(Slice, Slice)>, fjall::Error>>()?;
 
         if entries.is_empty() {
-            return;
+            return Ok(());
         }
 
-        info!(
-            "Managing {} Discord application command registrations",
-            entries.len()
-        );
+        info!("Managing Discord application command registrations");
 
-        let (clear_sender, clear_receiver) = channel();
-
-        core_tx
-            .send(CoreMessages::DatabaseModule(DatabaseMessages::Clear(
-                Keyspaces::DiscordApplicationCommands,
-                clear_sender,
-            )))
-            .unwrap();
-
-        clear_receiver.await.unwrap().unwrap();
+        application_command_keyspace.clear()?;
 
         let mut discord_commands = HashMap::new();
 
@@ -110,19 +95,13 @@ impl Discord {
             Ok(response) => match response.model().await {
                 Ok(application) => application.id,
                 Err(err) => {
-                    error!(
-                        "Something went wrong while deserializing the application data, error: {}",
-                        &err
+                    bail!(
+                        "Something went wrong while deserializing the application data, error: {err}"
                     );
-                    return;
                 }
             },
             Err(err) => {
-                error!(
-                    "Something went wrong while requesting the application data, error: {}",
-                    &err
-                );
-                return;
+                bail!("Something went wrong while requesting the application data, error: {err}");
             }
         };
 
@@ -134,11 +113,7 @@ impl Discord {
         {
             Ok(global_discord_commands_request) => global_discord_commands_request,
             Err(err) => {
-                error!(
-                    "Failed to build the get global commands request, error: {}",
-                    &err
-                );
-                return;
+                bail!("Failed to build the get global commands request, error: {err}");
             }
         };
 
@@ -159,19 +134,15 @@ impl Discord {
                     }
                 }
                 Err(err) => {
-                    error!(
-                        "Something went wrong while deserializing the global application commands, error: {}",
-                        &err
+                    bail!(
+                        "Something went wrong while deserializing the global application commands, error: {err}"
                     );
-                    return;
                 }
             },
             Err(err) => {
-                error!(
-                    "Something went wrong while requesting the global application commands, error: {}",
-                    &err
+                bail!(
+                    "Something went wrong while requesting the global application commands, error: {err}"
                 );
-                return;
             }
         }
 
@@ -185,10 +156,7 @@ impl Discord {
             {
                 Ok(guild_commands_request) => guild_commands_request,
                 Err(err) => {
-                    error!(
-                        "Failed to build the get guild commands request, error: {}",
-                        &err
-                    );
+                    error!("Failed to build the get guild commands request, error: {err}");
                     continue;
                 }
             };
@@ -211,15 +179,13 @@ impl Discord {
                     }
                     Err(err) => {
                         error!(
-                            "Something went wrong while deserializing the guild application commands, error: {}",
-                            &err
+                            "Something went wrong while deserializing the guild application commands, error: {err}"
                         );
                     }
                 },
                 Err(err) => {
                     error!(
-                        "Something went wrong while requesting the guild application commands, error: {}",
-                        &err
+                        "Something went wrong while requesting the guild application commands, error: {err}"
                     );
                 }
             }
@@ -239,18 +205,8 @@ impl Discord {
                 )
                 .await
                 {
-                    let (sender, receiver) = channel();
-
-                    core_tx
-                        .send(CoreMessages::DatabaseModule(DatabaseMessages::Insert(
-                            Keyspaces::DiscordApplicationCommands,
-                            command_id.to_string().into_bytes(),
-                            command.0.as_bytes().to_vec(),
-                            sender,
-                        )))
-                        .unwrap();
-
-                    receiver.await.unwrap().unwrap();
+                    application_command_keyspace
+                        .insert(command_id.get().to_ne_bytes(), command.0.as_bytes())?;
 
                     plugin_results.insert(command.1.name, Ok(command_id.get()));
                 } else {
@@ -277,18 +233,8 @@ impl Discord {
                     )
                     .await
                     {
-                        let (sender, receiver) = channel();
-
-                        core_tx
-                            .send(CoreMessages::DatabaseModule(DatabaseMessages::Insert(
-                                Keyspaces::DiscordApplicationCommands,
-                                command_id.to_string().into_bytes(),
-                                command.0.as_bytes().to_vec(),
-                                sender,
-                            )))
-                            .unwrap();
-
-                        receiver.await.unwrap().unwrap();
+                        application_command_keyspace
+                            .insert(command_id.get().to_ne_bytes(), command.0.as_bytes())?;
 
                         plugin_results.insert(command.1.name, Ok(command_id.get()));
                     } else {
@@ -312,6 +258,8 @@ impl Discord {
                 RuntimeMessagesDiscord::CallDiscordApplicationCommands(result.0, result.1),
             )));
         }
+
+        Ok(())
     }
 
     async fn register_application_command(
@@ -386,10 +334,7 @@ impl Discord {
             let request = match Request::builder(&route).build() {
                 Ok(request) => request,
                 Err(err) => {
-                    error!(
-                        "Failed to build the create global command request, error: {}",
-                        &err
-                    );
+                    error!("Failed to build the create global command request, error: {err}");
                     continue;
                 }
             };
@@ -402,8 +347,7 @@ impl Discord {
                 Ok(_) => (),
                 Err(err) => {
                     error!(
-                        "Something went wrong while requesting a command deletion, error: {}",
-                        &err
+                        "Something went wrong while requesting a command deletion, error: {err}"
                     );
                 }
             }

@@ -14,7 +14,6 @@ pub mod services;
 
 #[derive(Deserialize)]
 pub struct Config {
-    #[allow(unused)] // Will be used when multi instance support gets added
     pub name: String,
     #[serde(default)]
     pub services: ConfigServices,

@@ -7,6 +7,7 @@ pub mod plugins;
 use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
 use anyhow::Result;
+use fjall::Database;
 use tokio::{
     fs,
     sync::{
@@ -172,6 +173,7 @@ impl Runtime {
         plugins_directory_path: PathBuf,
         config_name: Arc<String>,
         available_plugins: Vec<(Uuid, AvailablePlugin)>,
+        database: Database,
         core_tx: UnboundedSender<CoreMessages>,
     ) -> Result<()> {
         info!("Initializing the plugins");
@@ -186,6 +188,7 @@ impl Runtime {
             let config_name = config_name.clone();
             let plugins = self.plugins.clone();
             let plugin_builder = self.plugin_builder.clone();
+            let database = database.clone();
             let core_tx = core_tx.clone();
 
             tasks.push(tokio::spawn(async move {
@@ -276,6 +279,7 @@ impl Runtime {
                         .into_iter()
                         .collect::<Box<[(String, String)]>>(),
                     workspace_directory_path: plugin_workspace_path,
+                    database,
                     core_tx,
                 };
 

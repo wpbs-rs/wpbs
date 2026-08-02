@@ -1,8 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 /* Copyright © 2026 Eduard Smet */
 
-use std::fmt::{self, Display};
-
 use serde::{Deserialize, Serialize};
 
 use crate::runtime::plugins::wpbs::plugin::discord_import_types::{
@@ -203,17 +201,17 @@ impl From<DiscordEventKinds> for PluginPermissionsDiscordEvents {
     }
 }
 
-impl Display for DiscordEventKinds {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl DiscordEventKinds {
+    pub const fn as_str(&self) -> &str {
         match self {
-            DiscordEventKinds::MessageCreate => write!(f, "MESSAGE_CREATE"),
-            DiscordEventKinds::InteractionCreate => write!(f, "INTERACTION_CREATE"),
-            DiscordEventKinds::ThreadCreate => write!(f, "THREAD_CREATE"),
-            DiscordEventKinds::ThreadDelete => write!(f, "THREAD_DELETE"),
-            DiscordEventKinds::ThreadListSync => write!(f, "THREAD_LIST_SYNC"),
-            DiscordEventKinds::ThreadMemberUpdate => write!(f, "THREAD_MEMBER_UPDATE"),
-            DiscordEventKinds::ThreadMembersUpdate => write!(f, "THREAD_MEMBERS_UPDATE"),
-            DiscordEventKinds::ThreadUpdate => write!(f, "THREAD_UPDATE"),
+            DiscordEventKinds::MessageCreate => "MESSAGE_CREATE",
+            DiscordEventKinds::InteractionCreate => "INTERACTION_CREATE",
+            DiscordEventKinds::ThreadCreate => "THREAD_CREATE",
+            DiscordEventKinds::ThreadDelete => "THREAD_DELETE",
+            DiscordEventKinds::ThreadListSync => "THREAD_LIST_SYNC",
+            DiscordEventKinds::ThreadMemberUpdate => "THREAD_MEMBER_UPDATE",
+            DiscordEventKinds::ThreadMembersUpdate => "THREAD_MEMBERS_UPDATE",
+            DiscordEventKinds::ThreadUpdate => "THREAD_UPDATE",
         }
     }
 }

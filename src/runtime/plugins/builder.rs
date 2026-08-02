@@ -77,10 +77,11 @@ impl PluginBuilder {
         let mut store = Store::<InternalRuntime>::new(
             &self.engine,
             InternalRuntime {
-                metadata: state_pre.metadata.clone(),
                 wasi,
                 wasi_http: WasiHttpCtx::new(),
                 table: ResourceTable::new(),
+                metadata: state_pre.metadata.clone(),
+                database: state_pre.database.clone(),
                 core_tx: state_pre.core_tx.clone(),
             },
         );

@@ -3,6 +3,7 @@
 
 use std::{path::PathBuf, sync::Arc};
 
+use fjall::Database;
 use semver::Version;
 use tokio::sync::mpsc::UnboundedSender;
 use uuid::Uuid;
@@ -22,9 +23,10 @@ pub struct RuntimePlugin {
 }
 
 pub struct RuntimePluginStatePre {
-    pub metadata: Arc<RuntimePluginMetadata>,
     pub environment: Box<[(String, String)]>,
     pub workspace_directory_path: PathBuf,
+    pub metadata: Arc<RuntimePluginMetadata>,
+    pub database: Database,
     pub core_tx: UnboundedSender<CoreMessages>,
 }
 

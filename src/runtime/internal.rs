@@ -3,6 +3,7 @@
 
 use std::sync::Arc;
 
+use fjall::Database;
 use tokio::sync::mpsc::UnboundedSender;
 use wasmtime_wasi::{ResourceTable, WasiCtx, WasiCtxView, WasiView};
 use wasmtime_wasi_http::{
@@ -16,10 +17,11 @@ mod services;
 use crate::{runtime::plugins::RuntimePluginMetadata, utils::channels::CoreMessages};
 
 pub struct InternalRuntime {
-    pub metadata: Arc<RuntimePluginMetadata>,
     pub wasi: WasiCtx,
     pub wasi_http: WasiHttpCtx,
     pub table: ResourceTable,
+    pub metadata: Arc<RuntimePluginMetadata>,
+    pub database: Database,
     pub core_tx: UnboundedSender<CoreMessages>,
 }
 

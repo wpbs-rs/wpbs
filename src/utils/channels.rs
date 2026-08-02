@@ -2,7 +2,6 @@
 /* Copyright © 2026 Eduard Smet */
 
 use anyhow::Result;
-use fjall::{Iter, Slice};
 use tokio::sync::{
     mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel},
     oneshot::Sender as OSSender,
@@ -12,7 +11,6 @@ use uuid::Uuid;
 
 use crate::{
     Shutdown,
-    database::Keyspaces,
     runtime::plugins::wpbs::plugin::{
         core_types::PluginError,
         discord_export_types::{DiscordEvents, DiscordRegistrationsResultApplicationCommands},
@@ -21,33 +19,12 @@ use crate::{
 };
 
 pub enum CoreMessages {
-    DatabaseModule(DatabaseMessages),
-
     Runtime(RuntimeMessages),
 
     JobScheduler(JobSchedulerMessages),
     Discord(DiscordMessages),
 
     Shutdown(Shutdown),
-}
-
-pub enum DatabaseMessages {
-    Get(Keyspaces, Vec<u8>, OSSender<Result<Option<Slice>>>),
-    #[allow(unused)]
-    Range(Keyspaces, Vec<u8>, Vec<u8>, bool, OSSender<Result<Iter>>),
-    #[allow(unused)]
-    Prefix(Keyspaces, Vec<u8>, OSSender<Result<Iter>>),
-    GetAllEntries(Keyspaces, OSSender<Result<Vec<(Slice, Slice)>>>),
-    #[allow(unused)]
-    GetAllKeys(Keyspaces, OSSender<Result<Vec<Slice>>>),
-    #[allow(unused)]
-    GetAllValues(Keyspaces, OSSender<Result<Vec<Slice>>>),
-    Insert(Keyspaces, Vec<u8>, Vec<u8>, OSSender<Result<()>>),
-    #[allow(unused)]
-    Remove(Keyspaces, Vec<u8>, OSSender<Result<()>>),
-    #[allow(unused)]
-    ContainsKey(Keyspaces, Vec<u8>, OSSender<Result<bool>>),
-    Clear(Keyspaces, OSSender<Result<()>>),
 }
 
 pub enum RuntimeMessages {
