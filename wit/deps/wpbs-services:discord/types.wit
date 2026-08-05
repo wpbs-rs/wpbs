@@ -1,14 +1,16 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 /* Copyright © 2026 Eduard Smet */
 
+use wpbs:shared/shared-types@0.1.0-rc.1;
+
+@since(version = 0.1.0-rc.1)
 interface discord-types {
+    use shared-types.{host-error, json, plugin-error};
+
+    @since(version = 0.1.0-rc.1)
     type snowflake = u64;
-}
 
-interface discord-import-types {
-    use core-types.{host-error, json};
-    use discord-types.{snowflake};
-
+    @since(version = 0.1.0-rc.1)
     enum discord-event-kinds {
         message-create,
         interaction-create,
@@ -21,13 +23,16 @@ interface discord-import-types {
     }
 
     // Registrations
+    @since(version = 0.1.0-rc.1)
     record discord-registrations {
         events: option<discord-registrations-events>,
         interactions: option<discord-registrations-interactions>,
     }
 
+    @since(version = 0.1.0-rc.1)
     type discord-registrations-events = list<discord-event-kinds>;
 
+    @since(version = 0.1.0-rc.1)
     record discord-registrations-interactions {
         application-commands: option<list<json>>,
         message-components: option<u16>,
@@ -35,14 +40,17 @@ interface discord-import-types {
     }
 
     // Registrations Result
+    @since(version = 0.1.0-rc.1)
     record discord-registrations-result {
         events: option<discord-registrations-events-result>,
         interactions: option<discord-registrations-interactions-result>,
     }
 
     // Map keys can only be component model primitives
+    @since(version = 0.1.0-rc.1)
     type discord-registrations-events-result = result<list<tuple<discord-event-kinds, result<_, host-error>>>, host-error>;
 
+    @since(version = 0.1.0-rc.1)
     record discord-registrations-interactions-result {
         application-commands: option<result<_, host-error>>,
         message-components: option<result<list<string>, host-error>>,
@@ -50,13 +58,16 @@ interface discord-import-types {
     }
 
     // Deregistrations
+    @since(version = 0.1.0-rc.1)
     record discord-deregistrations {
         events: option<discord-deregistrations-events>,
         interactions: option<discord-deregistrations-interactions>,
     }
 
+    @since(version = 0.1.0-rc.1)
     type discord-deregistrations-events = list<discord-event-kinds>;
 
+    @since(version = 0.1.0-rc.1)
     record discord-deregistrations-interactions {
         application-commands: option<list<string>>,
         message-components: option<list<string>>,
@@ -64,13 +75,16 @@ interface discord-import-types {
     }
 
     // Deregistrations Result
+    @since(version = 0.1.0-rc.1)
     record discord-deregistrations-result {
         events: option<discord-deregistrations-events-result>,
         interactions: option<discord-deregistrations-interactions-result>
     }
 
+    @since(version = 0.1.0-rc.1)
     type discord-deregistrations-events-result = list<tuple<discord-event-kinds, result<_, host-error>>>;
 
+    @since(version = 0.1.0-rc.1)
     record discord-deregistrations-interactions-result {
         application-commands: option<result<list<string>, host-error>>,
         message-components: option<result<list<string>, host-error>>,
@@ -78,6 +92,7 @@ interface discord-import-types {
     }
 
     // Discord Requests
+    @since(version = 0.1.0-rc.1)
     variant discord-requests {
         // Gateway commands
         request-guild-members(tuple<snowflake, json>),
@@ -109,28 +124,28 @@ interface discord-import-types {
         update-interaction-original(tuple<snowflake, string, json>),
     }
 
+    @since(version = 0.1.0-rc.1)
     variant body {
         json(json),
         form(form),
     }
 
+    @since(version = 0.1.0-rc.1)
     record form {
         boundary: list<u8>,
         buffer: list<u8>,
     }
 
     // Discord Responses
+    @since(version = 0.1.0-rc.1)
     type discord-responses = json;
-}
-
-interface discord-export-types {
-    use core-types.{json, plugin-error};
-    use discord-types.{snowflake};
 
     // Discord Application Command Registrations Result
+    @since(version = 0.1.0-rc.1)
     type discord-registrations-result-application-commands = map<string, result<snowflake, plugin-error>>;
 
     // Discord Events
+    @since(version = 0.1.0-rc.1)
     variant discord-events {
         interaction-create(json),
         message-create(json),
@@ -141,20 +156,4 @@ interface discord-export-types {
         thread-members-update(json),
         thread-update(json),
     }
-}
-
-interface discord-import-functions {
-    use core-types.{host-error};
-    use discord-import-types.{discord-requests, discord-responses};
-
-    discord-request: func(request: discord-requests) -> result<option<discord-responses>, host-error>;
-}
-
-interface discord-export-functions {
-    use core-types.{plugin-error};
-    use discord-export-types.{discord-events, discord-registrations-result-application-commands};
-
-    discord-application-commands: func(registrations-result: discord-registrations-result-application-commands);
-
-    discord-event: func(event: discord-events) -> result<_, plugin-error>;
 }

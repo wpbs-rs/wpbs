@@ -1,0 +1,32 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
+/* Copyright © 2026 Eduard Smet */
+
+package wpbs-services:job-scheduler@0.1.0-rc.1;
+
+use wpbs:shared/shared-types@0.1.0-rc.1;
+
+@since(version = 0.1.0-rc.1)
+world job-scheduler {
+    @since(version = 0.1.0-rc.1)
+    import job-scheduler-import-functions;
+    @since(version = 0.1.0-rc.1)
+    export job-scheduler-export-functions;
+}
+
+@since(version = 0.1.0-rc.1)
+interface job-scheduler-import-functions {
+    use job-scheduler-types.{deregistrations, deregistrations-result, registrations, registrations-result};
+
+    @since(version = 0.1.0-rc.1)
+    register: func(registrations: registrations) -> registrations-result;
+    @since(version = 0.1.0-rc.1)
+    deregister: func(deregistrations: deregistrations) -> deregistrations-result;
+}
+
+@since(version = 0.1.0-rc.1)
+interface job-scheduler-export-functions {
+    use shared-types.{plugin-error};
+
+    @since(version = 0.1.0-rc.1)
+    scheduled-job: func(job-id: string) -> result<_, plugin-error>;
+}

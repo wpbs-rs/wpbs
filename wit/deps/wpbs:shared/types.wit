@@ -1,13 +1,16 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 /* Copyright © 2026 Eduard Smet */
 
-package wpbs:plugin@0.1.0-rc.1;
+package wpbs:shared@0.1.0-rc.1;
 
 @since(version = 0.1.0-rc.1)
-world plugin {
+interface shared-types {
     @since(version = 0.1.0-rc.1)
-    include wpbs:core/core@0.1.0-rc.1;
+    type json = list<u8>;
 
     @since(version = 0.1.0-rc.1)
-    include wpbs:services/services@0.1.0-rc.1;
+    type host-error = string;
+
+    @since(version = 0.1.0-rc.1)
+    type plugin-error = string;
 }

@@ -1,0 +1,40 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
+/* Copyright © 2026 Eduard Smet */
+
+package wpbs-services:discord@0.1.0-rc.1;
+
+use wpbs:shared/shared-types@0.1.0-rc.1;
+
+@since(version = 0.1.0-rc.1)
+world discord {
+    @since(version = 0.1.0-rc.1)
+    import discord-import-functions;
+    @since(version = 0.1.0-rc.1)
+    export discord-export-functions;
+}
+
+@since(version = 0.1.0-rc.1)
+interface discord-import-functions {
+    use discord-types.{discord-deregistrations, discord-deregistrations-result, discord-registrations, discord-registrations-result, discord-requests, discord-responses};
+    use shared-types.{host-error};
+
+    @since(version = 0.1.0-rc.1)
+    register: func(registrations: discord-registrations) -> discord-registrations-result;
+    @since(version = 0.1.0-rc.1)
+    deregister: func(deregistrations: discord-deregistrations) -> discord-deregistrations-result;
+
+    @since(version = 0.1.0-rc.1)
+    discord-request: func(request: discord-requests) -> result<option<discord-responses>, host-error>;
+}
+
+@since(version = 0.1.0-rc.1)
+interface discord-export-functions {
+    use discord-types.{discord-events, discord-registrations-result-application-commands};
+    use shared-types.{host-error, plugin-error};
+
+    @since(version = 0.1.0-rc.1)
+    discord-application-commands: func(registrations-result: discord-registrations-result-application-commands) -> result<_, plugin-error>;
+
+    @since(version = 0.1.0-rc.1)
+    discord-event: func(event: discord-events) -> result<_, plugin-error>;
+}

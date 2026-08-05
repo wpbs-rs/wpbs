@@ -1,0 +1,50 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
+/* Copyright © 2026 Eduard Smet */
+
+package wpbs:core@0.1.0-rc.1;
+
+use wpbs:shared/shared-types@0.1.0-rc.1;
+
+@since(version = 0.1.0-rc.1)
+world core {
+    @since(version = 0.1.0-rc.1)
+    import core-import-functions;
+    @since(version = 0.1.0-rc.1)
+    export core-export-functions;
+}
+
+@since(version = 0.1.0-rc.1)
+interface core-import-functions {
+    use core-types.{log-levels};
+    use shared-types.{host-error};
+
+    @since(version = 0.1.0-rc.1)
+    log: func(level: log-levels, message: string);
+
+    @since(version = 0.1.0-rc.1)
+    get-value: func(key: string) -> result<option<list<u8>>, host-error>;
+    @since(version = 0.1.0-rc.1)
+    set-value: func(key: string, value: list<u8>) -> result<_, host-error>;
+    @since(version = 0.1.0-rc.1)
+    remove-value: func(key: string) -> result<option<list<u8>>, host-error>;
+
+    @since(version = 0.1.0-rc.1)
+    get-all-entries: func() -> result<list<tuple<string, list<u8>>>, host-error>;
+    @since(version = 0.1.0-rc.1)
+    clear-all-entries: func() -> result<_, host-error>;
+
+    @since(version = 0.1.0-rc.1)
+    shutdown: func(restart: bool) -> result<_, host-error>;
+}
+
+@since(version = 0.1.0-rc.1)
+interface core-export-functions {
+    use shared-types.{json, plugin-error};
+
+    @since(version = 0.1.0-rc.1)
+    initialization: func(settings: json) -> result<_, plugin-error>;
+
+    @since(version = 0.1.0-rc.1)
+    shutdown: func() -> result<_, plugin-error>;
+}
+

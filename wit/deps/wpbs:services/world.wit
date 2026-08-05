@@ -1,13 +1,12 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 /* Copyright © 2026 Eduard Smet */
 
-package wpbs:plugin@0.1.0-rc.1;
+package wpbs:services@0.1.0-rc.1;
 
 @since(version = 0.1.0-rc.1)
-world plugin {
+world services {
     @since(version = 0.1.0-rc.1)
-    include wpbs:core/core@0.1.0-rc.1;
-
+    include wpbs-services:job-scheduler/job-scheduler@0.1.0-rc.1;
     @since(version = 0.1.0-rc.1)
-    include wpbs:services/services@0.1.0-rc.1;
+    include wpbs-services:discord/discord@0.1.0-rc.1;
 }
