@@ -35,18 +35,20 @@ pub fn load_env_file(env_file_path: &Path) -> Result<()> {
     Ok(())
 }
 
-pub fn get_secrets(config: &ConfigServices) -> Result<Secrets> {
-    info!("Validating the environment variables");
+impl Secrets {
+    pub fn new(config: &ConfigServices) -> Result<Self> {
+        info!("Validating the environment variables");
 
-    let mut secrets = Secrets {
-        services: SecretsServices { discord: None },
-    };
+        let discord = if config.discord.enabled {
+            Some(SecretsDiscord {
+                bot_token: env::var("DISCORD_BOT_TOKEN")?,
+            })
+        } else {
+            None
+        };
 
-    if config.discord.enabled {
-        secrets.services.discord = Some(SecretsDiscord {
-            bot_token: env::var("DISCORD_BOT_TOKEN")?,
-        });
+        Ok(Self {
+            services: SecretsServices { discord },
+        })
     }
-
-    Ok(secrets)
 }

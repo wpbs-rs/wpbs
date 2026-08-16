@@ -83,11 +83,10 @@ async fn main() -> Result<ExitCode> {
 
     let _guard = utils::logger::new(cli.log_parameters)?;
 
-    utils::env::load_env_file(&cli.env_file)?;
-
     let config = Config::new(&cli.config_file, cli.restricted)?;
 
-    let secrets = utils::env::get_secrets(&config.services)?;
+    utils::env::load_env_file(&cli.env_file)?;
+    let secrets = Secrets::new(&config.services)?;
 
     let channels = utils::channels::new(
         config.services.job_scheduler.enabled,
