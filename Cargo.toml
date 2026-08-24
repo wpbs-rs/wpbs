@@ -39,7 +39,7 @@ twilight-model = { git = "https://github.com/wpbs-rs/twilight/" }
 url = "2.5.8"
 uuid = "1.24.0"
 wasm-pkg-client = { version = "0.16.0", default-features = false }
-wasmtime = "47.0.2"
+wasmtime = "48.0.0"
 wasmtime-wasi = "47.0.2"
 wasmtime-wasi-http = "47.0.2"
 yaml_serde = "0.10.4"
