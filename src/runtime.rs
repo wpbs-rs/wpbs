@@ -13,7 +13,6 @@ use tokio::{
     sync::{
         RwLock,
         mpsc::{UnboundedReceiver, UnboundedSender},
-        oneshot::Sender,
     },
     task::JoinHandle,
 };
@@ -21,21 +20,28 @@ use tokio_util::task::TaskTracker;
 use tracing::{debug, error, info};
 use uuid::Uuid;
 use wasm_pkg_client::ContentDigest;
-use wasmtime::component::Component;
 
 use crate::{
     registry::plugins::AvailablePlugin,
     runtime::plugins::{
-        PluginPre, RuntimePlugin, RuntimePluginMetadata, RuntimePluginStatePre,
-        builder::PluginBuilder,
-        wpbs::plugin::{
-            core_types::PluginError,
-            discord_export_types::{DiscordEvents, DiscordRegistrationsResultApplicationCommands},
+        RuntimePlugin, RuntimePluginIndices, RuntimePluginIndicesServices, RuntimePluginMetadata,
+        RuntimePluginStatePre,
+        bindings::{
+            core::CoreIndices,
+            services::{
+                discord::{
+                    DiscordIndices,
+                    exports::wpbs_services::discord::discord_export_functions::DiscordEvents,
+                    wpbs_services::discord::discord_types::DiscordRegistrationsResultApplicationCommands,
+                },
+                job_scheduler::JobSchedulerIndices,
+            },
         },
+        builder::PluginBuilder,
     },
     utils::channels::{
-        CoreMessages, RuntimeMessages, RuntimeMessagesCore, RuntimeMessagesDiscord,
-        RuntimeMessagesJobScheduler,
+        CoreMessages, RuntimeMessages, RuntimeMessagesServices, RuntimeMessagesServicesDiscord,
+        RuntimeMessagesServicesJobScheduler,
     },
 };
 
@@ -114,17 +120,6 @@ impl Runtime {
                     }
                 };
 
-                let component = match Component::new(&plugin_builder.engine, bytes) {
-                    Ok(component) => component,
-                    Err(err) => {
-                        error!(
-                            "An error occurred while creating a WASI component from the {} plugin: {err}",
-                            available_plugin.user_id
-                        );
-                        return;
-                    }
-                };
-
                 if let Err(err) = fs::create_dir_all(&plugin_workspace_path).await {
                     error!(
                         "Something went wrong while creating the workspace directory for the {} plugin, error: {err}",
@@ -133,25 +128,10 @@ impl Runtime {
                     return;
                 }
 
-                let instance_pre = match plugin_builder.linker.instantiate_pre(&component) {
+                let instance_pre = match plugin_builder.pre_instantiate(&available_plugin.user_id, &bytes) {
                     Ok(instance_pre) => instance_pre,
                     Err(err) => {
-                        error!(
-                            "The {} plugin returned an error while pre-instantiating (phase 1): {err}",
-                            available_plugin.user_id
-                        );
-                        return;
-                    }
-                };
-
-                let plugin_pre = match PluginPre::new(instance_pre) {
-                    Ok(plugin_pre) => plugin_pre,
-                    Err(err) => {
-                        error!(
-                            "The {} plugin returned an error while pre-instantiating (phase 2): {err}",
-                            available_plugin.user_id
-
-                        );
+                        error!("{err}");
                         return;
                     }
                 };
@@ -164,9 +144,6 @@ impl Runtime {
                     workspace_directory_path: plugin_workspace_path,
                     metadata: Arc::new(RuntimePluginMetadata {
                         plugin_uuid: available_plugin.plugin_uuid,
-                        namespace_id: available_plugin.namespace_id,
-                        plugin_id: available_plugin.plugin_id,
-                        version: available_plugin.version,
                         user_id: available_plugin.user_id,
                         permissions: available_plugin.permissions,
                     }),
@@ -174,23 +151,50 @@ impl Runtime {
                     core_tx,
                 };
 
+                let core_indices = match CoreIndices::new(&instance_pre) {
+                    Ok(core_indices) => core_indices,
+                    Err(err) => {
+                        error!(
+                            "Core indices error for the {} plugin: {err}",
+                            state_pre.metadata.user_id
+                        );
+                        return;
+                    }
+                };
+
+                let indices = RuntimePluginIndices {
+                    core: core_indices,
+                    services: RuntimePluginIndicesServices {
+                        job_scheduler: JobSchedulerIndices::new(&instance_pre).ok(),
+                        discord: DiscordIndices::new(&instance_pre).ok(),
+                    }
+                };
+
                 {
                     let mut store = plugin_builder.store_builder(&state_pre);
 
-                    let (instance, mut store) = match plugin_pre.instantiate_async(&mut store).await {
+
+                    let (instance, mut store) = match instance_pre.instantiate_async(&mut store).await {
                         Ok(instance) => (instance, store),
                         Err(err) => {
                             error!(
-                                "Failed to instantiate the {} plugin, error: {err}",
+                                "Failed to instantiate the {} plugin (core), error: {err}",
                                 state_pre.metadata.user_id
                             );
                             return;
                         }
                     };
 
-                    match instance
-                        .wpbs_plugin_core_export_functions()
-                        .call_initialization(&mut store, &sonic_rs::to_string(&available_plugin.settings).unwrap())
+                    let core_instance = match indices.core.load(&mut store, &instance) {
+            Ok(core_instance) => core_instance,
+            Err(err) => {
+                error!("Plugin typed instance loading error: {err}");
+                return;
+            }
+        };
+
+                    match core_instance.wpbs_core_core_export_functions()
+                        .call_initialization(&mut store, &sonic_rs::to_vec(&available_plugin.settings).unwrap())
                         .await
                     {
                         Ok(init_result) => {
@@ -213,8 +217,9 @@ impl Runtime {
                 }
 
                 let plugin_context = Arc::new(RuntimePlugin {
-                    plugin_pre,
+                    instance_pre,
                     state_pre,
+                    indices,
                 });
 
                 plugins.write().await.insert(available_plugin.plugin_uuid, plugin_context);
@@ -240,95 +245,76 @@ impl Runtime {
 
             while let Some(message) = self.rx.recv().await {
                 match message {
-                    RuntimeMessages::Core(core_message) => match core_message {
-                        RuntimeMessagesCore::CallDependencyFunction(
-                            plugin_uuid,
-                            signature,
-                            params,
-                            response_sender,
-                        ) => {
-                            let plugins = self.plugins.clone();
-                            let plugin_builder = self.plugin_builder.clone();
+                    RuntimeMessages::Services(service_message) => match service_message {
+                        RuntimeMessagesServices::JobScheduler(job_scheduler_message) => {
+                            match job_scheduler_message {
+                                RuntimeMessagesServicesJobScheduler::CallScheduledJob(
+                                    plugin_uuid,
+                                    job_uuid,
+                                ) => {
+                                    let plugins = self.plugins.clone();
+                                    let plugin_builder = self.plugin_builder.clone();
 
-                            task_tracker.spawn(async move {
-                                if let Some(plugin) =
-                                    plugins.read().await.get(&plugin_uuid).map(|p| (*p).clone())
-                                {
-                                    Self::call_dependency_function(
-                                        plugin_builder,
-                                        plugin,
-                                        signature,
-                                        params,
-                                        response_sender,
-                                    )
-                                    .await;
-                                }
-                            });
-                        }
-                        RuntimeMessagesCore::RemovePlugin(plugin_uuid) => {
-                            let plugins = self.plugins.clone();
-                            let plugin_builder = self.plugin_builder.clone();
-
-                            task_tracker.spawn(async move {
-                                if let Some(plugin) = plugins.write().await.remove(&plugin_uuid) {
-                                    // TODO: Delay calling shutdown until all plugin calls have finished.
-                                    Self::call_shutdown(plugin_builder, plugin).await;
-                                }
-                            });
-                        }
-                    },
-                    RuntimeMessages::JobScheduler(job_scheduler_message) => {
-                        match job_scheduler_message {
-                            RuntimeMessagesJobScheduler::CallScheduledJob(
-                                plugin_uuid,
-                                job_uuid,
-                            ) => {
-                                let plugins = self.plugins.clone();
-                                let plugin_builder = self.plugin_builder.clone();
-
-                                task_tracker.spawn(async move {
-                                    if let Some(plugin) =
-                                        plugins.read().await.get(&plugin_uuid).map(|p| (*p).clone())
-                                    {
-                                        Self::call_scheduled_job(plugin_builder, plugin, job_uuid)
+                                    task_tracker.spawn(async move {
+                                        if let Some(plugin) = plugins
+                                            .read()
+                                            .await
+                                            .get(&plugin_uuid)
+                                            .map(|p| (*p).clone())
+                                        {
+                                            Self::call_scheduled_job(
+                                                plugin_builder,
+                                                plugin,
+                                                job_uuid,
+                                            )
                                             .await;
-                                    }
-                                });
+                                        }
+                                    });
+                                }
                             }
                         }
-                    }
-                    RuntimeMessages::Discord(discord_message) => match discord_message {
-                        RuntimeMessagesDiscord::CallDiscordApplicationCommands(
-                            plugin_uuid,
-                            results,
-                        ) => {
-                            let plugins = self.plugins.clone();
-                            let plugin_builder = self.plugin_builder.clone();
+                        RuntimeMessagesServices::Discord(discord_message) => {
+                            match discord_message {
+                                RuntimeMessagesServicesDiscord::CallDiscordApplicationCommandsResult(
+                                    plugin_uuid,
+                                    results,
+                                ) => {
+                                    let plugins = self.plugins.clone();
+                                    let plugin_builder = self.plugin_builder.clone();
 
-                            task_tracker.spawn(async move {
-                                if let Some(plugin) =
-                                    plugins.read().await.get(&plugin_uuid).map(|p| (*p).clone())
-                                {
-                                    Self::call_discord_application_commands(
-                                        plugin_builder,
-                                        plugin,
-                                        results,
-                                    )
-                                    .await;
+                                    task_tracker.spawn(async move {
+                                        if let Some(plugin) = plugins
+                                            .read()
+                                            .await
+                                            .get(&plugin_uuid)
+                                            .map(|p| (*p).clone())
+                                        {
+                                            Self::call_discord_application_commands(
+                                                plugin_builder,
+                                                plugin,
+                                                results,
+                                            )
+                                            .await;
+                                        }
+                                    });
                                 }
-                            });
-                        }
-                        RuntimeMessagesDiscord::CallDiscordEvent(plugin_uuid, event) => {
-                            let plugins = self.plugins.clone();
-                            let plugin_builder = self.plugin_builder.clone();
+                                RuntimeMessagesServicesDiscord::CallDiscordEvent(plugin_uuid, event) => {
+                                    let plugins = self.plugins.clone();
+                                    let plugin_builder = self.plugin_builder.clone();
 
-                            task_tracker.spawn(async move {
-                                if let Some(plugin) =
-                                    plugins.read().await.get(&plugin_uuid).map(|p| (*p).clone())
-                                {
-                                    Self::call_discord_event(plugin_builder, plugin, event).await;
+                                    task_tracker.spawn(async move {
+                                        if let Some(plugin) = plugins
+                                            .read()
+                                            .await
+                                            .get(&plugin_uuid)
+                                            .map(|p| (*p).clone())
+                                        {
+                                            Self::call_discord_event(plugin_builder, plugin, event)
+                                                .await;
+                                        }
+                                    });
                                 }
-                            });
+                            }
                         }
                     },
                 }
@@ -341,54 +327,6 @@ impl Runtime {
         })
     }
 
-    async fn call_dependency_function(
-        plugin_builder: Arc<PluginBuilder>,
-        plugin: Arc<RuntimePlugin>,
-        signature: String,
-        params: Vec<u8>,
-        response_sender: Sender<Result<Vec<u8>, PluginError>>,
-    ) {
-        debug!(
-            "Calling the {signature} dependency function of the {} plugin",
-            plugin.state_pre.metadata.user_id
-        );
-
-        let (instance, store) = match plugin_builder.instantiate(plugin.clone()).await {
-            Ok((instance, store)) => (instance, store),
-            Err(err) => {
-                let err = format!("Plugin instantiation error: {err}");
-
-                error!(err);
-
-                response_sender.send(Err(err)).unwrap();
-
-                return;
-            }
-        };
-
-        match instance
-            .wpbs_plugin_core_export_functions()
-            .call_dependency_function(store, &signature, &params)
-            .await
-        {
-            Ok(result) => {
-                response_sender.send(result).unwrap();
-            }
-            Err(err) => {
-                error!(
-                    "The {} plugin experienced a critical error: {err}",
-                    plugin.state_pre.metadata.user_id
-                );
-
-                response_sender
-                    .send(Err(format!(
-                        "The dependency plugin experienced a critical error: {err}"
-                    )))
-                    .unwrap();
-            }
-        }
-    }
-
     async fn call_scheduled_job(
         plugin_builder: Arc<PluginBuilder>,
         plugin: Arc<RuntimePlugin>,
@@ -399,7 +337,7 @@ impl Runtime {
             plugin.state_pre.metadata.user_id
         );
 
-        let (instance, store) = match plugin_builder.instantiate(plugin.clone()).await {
+        let (instance, mut store) = match plugin_builder.instantiate(plugin.clone()).await {
             Ok((instance, store)) => (instance, store),
             Err(err) => {
                 error!("Plugin instantiation error: {err}");
@@ -407,8 +345,23 @@ impl Runtime {
             }
         };
 
-        match instance
-            .wpbs_plugin_job_scheduler_export_functions()
+        let job_scheduler_instance = match plugin
+            .indices
+            .services
+            .job_scheduler
+            .as_ref()
+            .unwrap()
+            .load(&mut store, &instance)
+        {
+            Ok(job_scheduler_instance) => job_scheduler_instance,
+            Err(err) => {
+                error!("Plugin typed instance loading error: {err}");
+                return;
+            }
+        };
+
+        match job_scheduler_instance
+            .wpbs_services_job_scheduler_job_scheduler_export_functions()
             .call_scheduled_job(store, &job_uuid.to_string())
             .await
         {
@@ -436,7 +389,7 @@ impl Runtime {
             plugin.state_pre.metadata.user_id
         );
 
-        let (instance, store) = match plugin_builder.instantiate(plugin.clone()).await {
+        let (instance, mut store) = match plugin_builder.instantiate(plugin.clone()).await {
             Ok((instance, store)) => (instance, store),
             Err(err) => {
                 error!("Plugin instantiation error: {err}");
@@ -444,9 +397,24 @@ impl Runtime {
             }
         };
 
-        if let Err(err) = instance
-            .wpbs_plugin_discord_export_functions()
-            .call_discord_application_commands(store, &results)
+        let discord_instance = match plugin
+            .indices
+            .services
+            .discord
+            .as_ref()
+            .unwrap()
+            .load(&mut store, &instance)
+        {
+            Ok(discord_instance) => discord_instance,
+            Err(err) => {
+                error!("Plugin typed instance loading error: {err}");
+                return;
+            }
+        };
+
+        if let Err(err) = discord_instance
+            .wpbs_services_discord_discord_export_functions()
+            .call_discord_application_commands_result(store, &results)
             .await
         {
             error!(
@@ -466,7 +434,7 @@ impl Runtime {
             plugin.state_pre.metadata.user_id
         );
 
-        let (instance, store) = match plugin_builder.instantiate(plugin.clone()).await {
+        let (instance, mut store) = match plugin_builder.instantiate(plugin.clone()).await {
             Ok((instance, store)) => (instance, store),
             Err(err) => {
                 error!("Plugin instantiation error: {err}");
@@ -474,8 +442,23 @@ impl Runtime {
             }
         };
 
-        match instance
-            .wpbs_plugin_discord_export_functions()
+        let discord_instance = match plugin
+            .indices
+            .services
+            .discord
+            .as_ref()
+            .unwrap()
+            .load(&mut store, &instance)
+        {
+            Ok(discord_instance) => discord_instance,
+            Err(err) => {
+                error!("Plugin typed instance loading error: {err}");
+                return;
+            }
+        };
+
+        match discord_instance
+            .wpbs_services_discord_discord_export_functions()
             .call_discord_event(store, &event)
             .await
         {
@@ -501,7 +484,7 @@ impl Runtime {
 
         let mut store = plugin_builder.store_builder(&plugin.state_pre);
 
-        let instance = match plugin.plugin_pre.instantiate_async(&mut store).await {
+        let instance = match plugin.instance_pre.instantiate_async(&mut store).await {
             Ok(instance) => instance,
             Err(err) => {
                 error!(
@@ -512,8 +495,16 @@ impl Runtime {
             }
         };
 
-        match instance
-            .wpbs_plugin_core_export_functions()
+        let core_instance = match plugin.indices.core.load(&mut store, &instance) {
+            Ok(core_instance) => core_instance,
+            Err(err) => {
+                error!("Plugin typed instance loading error: {err}");
+                return;
+            }
+        };
+
+        match core_instance
+            .wpbs_core_core_export_functions()
             .call_shutdown(store)
             .await
         {

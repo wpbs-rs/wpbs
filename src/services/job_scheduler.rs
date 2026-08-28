@@ -19,7 +19,8 @@ use tracing::info;
 use uuid::Uuid;
 
 use crate::utils::channels::{
-    CoreMessages, JobSchedulerMessages, RuntimeMessages, RuntimeMessagesJobScheduler,
+    CoreMessages, JobSchedulerMessages, RuntimeMessages, RuntimeMessagesServices,
+    RuntimeMessagesServicesJobScheduler,
 };
 
 pub struct JobScheduler {
@@ -98,8 +99,13 @@ impl JobScheduler {
                     tokio::time::sleep_until(Instant::now() + duration).await;
                 }
 
-                let _ = core_tx.send(CoreMessages::Runtime(RuntimeMessages::JobScheduler(
-                    RuntimeMessagesJobScheduler::CallScheduledJob(plugin_uuid, job_uuid),
+                let _ = core_tx.send(CoreMessages::Runtime(RuntimeMessages::Services(
+                    RuntimeMessagesServices::JobScheduler(
+                        RuntimeMessagesServicesJobScheduler::CallScheduledJob(
+                            plugin_uuid,
+                            job_uuid,
+                        ),
+                    ),
                 )));
             }
         });

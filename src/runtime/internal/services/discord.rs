@@ -14,56 +14,59 @@ use crate::{
         internal::InternalRuntime,
         plugins::{
             RuntimePluginMetadata,
-            wpbs::plugin::{
-                core_import_types::DiscordRegistrationsResult,
-                core_types::HostError,
-                discord_export_types::Host as DiscordExportTypesHost,
-                discord_import_functions::Host as DiscordImportFunctionsHost,
-                discord_import_types::{
-                    DiscordEventKinds, DiscordRegistrations,
-                    DiscordRegistrationsInteractionsResult, DiscordRequests, DiscordResponses,
-                    Host as DiscordImportTypesHost,
+            bindings::services::discord::{
+                wpbs::shared::shared_types::{Host as SharedTypesHost, HostError},
+                wpbs_services::discord::{
+                    discord_import_functions::Host as DiscordImportFunctionsHost,
+                    discord_types::{
+                        DiscordDeregistrations, DiscordDeregistrationsResult, DiscordEventKinds,
+                        DiscordRegistrations, DiscordRegistrationsInteractionsResult,
+                        DiscordRegistrationsResult, DiscordRequests, DiscordResponses,
+                        Host as DiscordTypesHost,
+                    },
                 },
-                discord_types::Host as DiscordTypesHost,
             },
         },
     },
-    utils::channels::{CoreMessages, DiscordMessages},
+    utils::channels::{CoreMessages, CoreMessagesServices, DiscordMessages},
 };
 
 type DiscordEventRegistrationsResult =
     Result<Vec<(DiscordEventKinds, Result<(), HostError>)>, HostError>;
 
-impl InternalRuntime {
-    pub async fn register_discord(
-        database: Database,
-        plugin_metadata: Arc<RuntimePluginMetadata>,
-        discord_registrations: DiscordRegistrations,
+impl SharedTypesHost for InternalRuntime {}
+
+impl DiscordTypesHost for InternalRuntime {}
+
+impl DiscordImportFunctionsHost for InternalRuntime {
+    async fn register(
+        &mut self,
+        registrations: DiscordRegistrations,
     ) -> Result<DiscordRegistrationsResult, HostError> {
         if TASKS.read().await.services.discord.is_none() {
             return Err(HostError::from("The Discord service is disabled"));
         }
 
-        let event_registrations_result = discord_registrations
+        let event_registrations_result = registrations
             .events
-            .map(|er| Self::register_discord_events(&database, &plugin_metadata, er));
+            .map(|er| Self::register_discord_events(&self.database, &self.metadata, er));
 
         let interaction_registrations_result = if let Some(interaction_registrations) =
-            discord_registrations.interactions
+            registrations.interactions
         {
             let application_command_registrations_result =
                 interaction_registrations.application_commands.map(|acr| {
-                    Self::register_discord_application_commands(&database, &plugin_metadata, acr)
+                    Self::register_discord_application_commands(&self.database, &self.metadata, acr)
                 });
 
             let message_component_registrations_result =
                 interaction_registrations.message_components.map(|mcr| {
-                    Self::register_discord_message_components(&database, &plugin_metadata, mcr)
+                    Self::register_discord_message_components(&self.database, &self.metadata, mcr)
                 });
 
             let modal_registrations_result = interaction_registrations
                 .modals
-                .map(|mr| Self::register_discord_modals(&database, &plugin_metadata, mr));
+                .map(|mr| Self::register_discord_modals(&self.database, &self.metadata, mr));
 
             Some(DiscordRegistrationsInteractionsResult {
                 application_commands: application_command_registrations_result,
@@ -80,6 +83,47 @@ impl InternalRuntime {
         })
     }
 
+    async fn deregister(
+        &mut self,
+        _deregistrations: DiscordDeregistrations,
+    ) -> Result<DiscordDeregistrationsResult, HostError> {
+        todo!()
+    }
+
+    async fn discord_request(
+        &mut self,
+        request: DiscordRequests,
+    ) -> Result<Option<DiscordResponses>, HostError> {
+        let (sender, receiver) = channel();
+
+        if TASKS.read().await.services.discord.is_some() {
+            if !self
+                .metadata
+                .permissions
+                .services
+                .discord
+                .requests
+                .contains(&(&request).into())
+            {
+                return Err(HostError::from(
+                    "Plugin does not have the permission to make this Discord request",
+                ));
+            }
+
+            self.core_tx
+                .send(CoreMessages::Services(CoreMessagesServices::Discord(
+                    DiscordMessages::Request(request, sender),
+                )))
+                .unwrap();
+
+            receiver.await.unwrap()
+        } else {
+            Err(HostError::from("The Discord service is disabled"))
+        }
+    }
+}
+
+impl InternalRuntime {
     fn register_discord_events(
         database: &Database,
         plugin_metadata: &Arc<RuntimePluginMetadata>,
@@ -102,7 +146,7 @@ impl InternalRuntime {
                 event_registrations_result.push((
                     event_registration,
                     Err(HostError::from(
-                        "Plugin is not allowed to register for this event",
+                        "Plugin does not have the permission to register for this event",
                     )),
                 ));
                 continue;
@@ -128,7 +172,7 @@ impl InternalRuntime {
     fn register_discord_application_commands(
         database: &Database,
         plugin_metadata: &Arc<RuntimePluginMetadata>,
-        application_command_registrations: Vec<String>,
+        application_command_registrations: Vec<Vec<u8>>,
     ) -> Result<(), HostError> {
         if !plugin_metadata
             .permissions
@@ -138,7 +182,7 @@ impl InternalRuntime {
             .contains(&PluginPermissionsDiscordInteractions::ApplicationCommands)
         {
             return Err(HostError::from(
-                "Plugin is not allowed to register application command interactions",
+                "Plugin does not have the permission to register application command interactions",
             ));
         }
 
@@ -158,7 +202,7 @@ impl InternalRuntime {
             );
 
             application_commands_keyspace
-                .insert(&key, application_command_registration.as_bytes())
+                .insert(&key, application_command_registration)
                 .map_err(|err| err.to_string())?;
         }
 
@@ -178,7 +222,7 @@ impl InternalRuntime {
             .contains(&PluginPermissionsDiscordInteractions::MessageComponents)
         {
             return Err(HostError::from(
-                "Plugin is not allowed to register message component interactions",
+                "Plugin does not have the permission to register message component interactions",
             ));
         }
 
@@ -217,7 +261,7 @@ impl InternalRuntime {
             .contains(&PluginPermissionsDiscordInteractions::Modals)
         {
             return Err(HostError::from(
-                "Plugin is not allowed to register modal interactions",
+                "Plugin does not have the permission to register modal interactions",
             ));
         }
 
@@ -241,43 +285,5 @@ impl InternalRuntime {
         }
 
         Ok(modal_registrations_result)
-    }
-}
-
-impl DiscordTypesHost for InternalRuntime {}
-impl DiscordImportTypesHost for InternalRuntime {}
-impl DiscordExportTypesHost for InternalRuntime {}
-
-impl DiscordImportFunctionsHost for InternalRuntime {
-    async fn discord_request(
-        &mut self,
-        request: DiscordRequests,
-    ) -> Result<Option<DiscordResponses>, HostError> {
-        let (sender, receiver) = channel();
-
-        if TASKS.read().await.services.discord.is_some() {
-            if !self
-                .metadata
-                .permissions
-                .services
-                .discord
-                .requests
-                .contains(&(&request).into())
-            {
-                return Err(HostError::from(
-                    "Plugin does not have the permission to make this Discord request",
-                ));
-            }
-
-            self.core_tx
-                .send(CoreMessages::Discord(DiscordMessages::Request(
-                    request, sender,
-                )))
-                .unwrap();
-
-            receiver.await.unwrap()
-        } else {
-            Err(HostError::from("The Discord service is disabled"))
-        }
     }
 }

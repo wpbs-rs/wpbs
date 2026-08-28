@@ -1,0 +1,43 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
+/* Copyright © 2026 Eduard Smet */
+
+package wpbs-services:discord@0.1.0;
+
+use wpbs:shared/shared-types@0.1.0;
+
+@since(version = 0.1.0)
+world discord {
+    @since(version = 0.1.0)
+    import discord-import-functions;
+    @since(version = 0.1.0)
+    export discord-export-functions;
+}
+
+@since(version = 0.1.0)
+interface discord-import-functions {
+    use discord-types.{discord-deregistrations, discord-deregistrations-result, discord-registrations, discord-registrations-result, discord-requests, discord-responses};
+    use shared-types.{host-error};
+
+    // TODO: Make registrations seamless (e.g. reg modal string ("alpha bravo" == call value)
+    // -> How to guarantee uniqueness per plugin?
+    //  => Keep UUIDs in some format, but implement the database storing hostside.
+    @since(version = 0.1.0)
+    register: func(registrations: discord-registrations) -> result<discord-registrations-result, host-error>;
+    @since(version = 0.1.0)
+    deregister: func(deregistrations: discord-deregistrations) -> result<discord-deregistrations-result, host-error>;
+
+    @since(version = 0.1.0)
+    discord-request: func(request: discord-requests) -> result<option<discord-responses>, host-error>;
+}
+
+@since(version = 0.1.0)
+interface discord-export-functions {
+    use discord-types.{discord-events, discord-registrations-result-application-commands};
+    use shared-types.{host-error, plugin-error};
+
+    @since(version = 0.1.0)
+    discord-application-commands-result: func(application-commands-result: discord-registrations-result-application-commands) -> result<_, plugin-error>;
+
+    @since(version = 0.1.0)
+    discord-event: func(event: discord-events) -> result<_, plugin-error>;
+}

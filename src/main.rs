@@ -36,11 +36,9 @@ use config::Config;
 
 use crate::{
     runtime::Runtime,
+    services::ServicesTx,
     utils::{
-        channels::{
-            ChannelsRuntime, ChannelsServices, CoreMessages, DiscordMessages, JobSchedulerMessages,
-            RuntimeMessages,
-        },
+        channels::{ChannelsRuntime, ChannelsServices, CoreMessages, RuntimeMessages},
         env::Secrets,
     },
 };
@@ -100,10 +98,14 @@ async fn main() -> Result<ExitCode> {
 
     let database = database::new(&cli.database_directory)?;
 
+    let services_tx = ServicesTx {
+        job_scheduler: Arc::new(RwLock::new(channels.core.job_scheduler_tx)),
+        discord: Arc::new(RwLock::new(channels.core.discord_tx)),
+    };
+
     let message_handler = message_handler(
         Arc::new(RwLock::new(Some(channels.core.runtime_tx))),
-        Arc::new(RwLock::new(channels.core.job_scheduler_tx)),
-        Arc::new(RwLock::new(channels.core.discord_tx)),
+        Arc::new(services_tx),
         channels.core.rx,
         database.clone(),
         Arc::new(shutdown_signal_listener),
@@ -130,8 +132,7 @@ async fn main() -> Result<ExitCode> {
 
 fn message_handler(
     runtime_tx: Arc<RwLock<Option<UnboundedSender<RuntimeMessages>>>>,
-    job_scheduler_tx: Arc<RwLock<Option<UnboundedSender<JobSchedulerMessages>>>>,
-    discord_tx: Arc<RwLock<Option<UnboundedSender<DiscordMessages>>>>,
+    services_tx: Arc<ServicesTx>,
     mut rx: UnboundedReceiver<CoreMessages>,
     database: Database,
     shutdown_signal_listener: Arc<JoinHandle<()>>,
@@ -146,21 +147,16 @@ fn message_handler(
                         runtime_tx.send(runtime_message).unwrap();
                     }
                 }
-                CoreMessages::JobScheduler(job_scheduler_message) => {
-                    if let Some(job_scheduler_tx) = job_scheduler_tx.read().await.as_ref() {
-                        job_scheduler_tx.send(job_scheduler_message).unwrap();
-                    }
-                }
-                CoreMessages::Discord(discord_message) => {
-                    if let Some(discord_tx) = discord_tx.read().await.as_ref() {
-                        discord_tx.send(discord_message).unwrap();
-                    }
+                CoreMessages::Services(service_message) => {
+                    tokio::spawn(services::message_handler(
+                        services_tx.clone(),
+                        service_message,
+                    ));
                 }
                 CoreMessages::Shutdown(shutdown_kind) => {
                     tokio::spawn(shutdown(
                         runtime_tx.clone(),
-                        job_scheduler_tx.clone(),
-                        discord_tx.clone(),
+                        services_tx.clone(),
                         shutdown_signal_listener.clone(),
                         shutdown_kind,
                     ));
@@ -294,8 +290,7 @@ fn shutdown_signal_listener(core_tx: UnboundedSender<CoreMessages>) -> JoinHandl
 
 async fn shutdown(
     runtime_tx: Arc<RwLock<Option<UnboundedSender<RuntimeMessages>>>>,
-    job_scheduler_tx: Arc<RwLock<Option<UnboundedSender<JobSchedulerMessages>>>>,
-    discord_tx: Arc<RwLock<Option<UnboundedSender<DiscordMessages>>>>,
+    services_tx: Arc<ServicesTx>,
     shutdown_signal_listener: Arc<JoinHandle<()>>,
     shutdown_kind: Shutdown,
 ) {
@@ -325,8 +320,8 @@ async fn shutdown(
     }
 
     drop((
-        job_scheduler_tx.write().await.take(),
-        discord_tx.write().await.take(),
+        services_tx.job_scheduler.write().await.take(),
+        services_tx.discord.write().await.take(),
     ));
 
     if let Some(job_scheduler) = tasks.services.job_scheduler.take() {

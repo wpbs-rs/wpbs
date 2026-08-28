@@ -1,84 +1,86 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 /* Copyright © 2026 Eduard Smet */
 
-use std::{collections::HashMap, sync::Arc};
+use std::collections::HashMap;
 
-use tokio::sync::{mpsc::UnboundedSender, oneshot::channel};
+use tokio::sync::oneshot::channel;
 
 use crate::{
     TASKS,
     config::plugins::permissions::services::job_scheduler::PluginPermissionsJobScheduler,
     runtime::{
         internal::InternalRuntime,
-        plugins::{
-            RuntimePluginMetadata,
-            wpbs::plugin::{
-                core_import_functions::HostError,
-                job_scheduler_import_types::{
-                    Host as JobSchedulerImportTypesHost, JobSchedulerRegistrations,
-                    JobSchedulerRegistrationsResult,
+        plugins::bindings::services::job_scheduler::{
+            wpbs::shared::shared_types::{Host as SharedTypesHost, HostError},
+            wpbs_services::job_scheduler::{
+                job_scheduler_import_functions::Host as JobSchedulerImportFunctionsHost,
+                job_scheduler_types::{
+                    Deregistrations, DeregistrationsResult, Host as JobSchedulerTypesHost,
+                    Registrations, RegistrationsResult,
                 },
             },
         },
     },
-    utils::channels::{CoreMessages, JobSchedulerMessages},
+    utils::channels::{CoreMessages, CoreMessagesServices, JobSchedulerMessages},
 };
 
-impl InternalRuntime {
-    pub async fn register_job_scheduler(
-        core_tx: UnboundedSender<CoreMessages>,
-        plugin_metadata: Arc<RuntimePluginMetadata>,
-        job_scheduler_registrations: JobSchedulerRegistrations,
-    ) -> Result<JobSchedulerRegistrationsResult, HostError> {
+impl SharedTypesHost for InternalRuntime {}
+
+impl JobSchedulerTypesHost for InternalRuntime {}
+
+impl JobSchedulerImportFunctionsHost for InternalRuntime {
+    async fn register(
+        &mut self,
+        registrations: Registrations,
+    ) -> Result<RegistrationsResult, HostError> {
         if TASKS.read().await.services.job_scheduler.is_none() {
             return Err(HostError::from("The job scheduler service is disabled"));
         }
 
-        let scheduled_jobs_registrations_result =
-            if let Some(scheduled_job_registrations) = job_scheduler_registrations.scheduled_jobs {
-                if plugin_metadata
-                    .permissions
-                    .services
-                    .job_scheduler
-                    .contains(&PluginPermissionsJobScheduler::ScheduledJobs)
-                {
-                    let mut scheduled_job_registrations_result = HashMap::new();
+        if !self
+            .metadata
+            .permissions
+            .services
+            .job_scheduler
+            .contains(&PluginPermissionsJobScheduler::ScheduledJobs)
+        {
+            return Err(HostError::from(
+                "Plugin does not have the permission to register scheduled jobs",
+            ));
+        }
 
-                    for scheduled_job_registration in scheduled_job_registrations {
-                        let (sender, receiver) = channel();
+        let mut scheduled_job_registrations_result = HashMap::new();
 
-                        core_tx
-                            .send(CoreMessages::JobScheduler(JobSchedulerMessages::AddJob(
-                                plugin_metadata.plugin_uuid,
-                                scheduled_job_registration.clone(),
-                                sender,
-                            )))
-                            .unwrap();
+        for scheduled_job_registration in registrations {
+            let (sender, receiver) = channel();
 
-                        let job_scheduler_result = receiver
-                            .await
-                            .unwrap()
-                            .map(|job_uuid| job_uuid.to_string())
-                            .map_err(|err| err.to_string());
+            self.core_tx
+                .send(CoreMessages::Services(CoreMessagesServices::JobScheduler(
+                    JobSchedulerMessages::AddJob(
+                        self.metadata.plugin_uuid,
+                        scheduled_job_registration.clone(),
+                        sender,
+                    ),
+                )))
+                .unwrap();
 
-                        scheduled_job_registrations_result
-                            .insert(scheduled_job_registration, job_scheduler_result);
-                    }
+            let job_scheduler_result = receiver
+                .await
+                .unwrap()
+                .map(|job_uuid| job_uuid.to_string())
+                .map_err(|err| err.to_string());
 
-                    Some(Ok(scheduled_job_registrations_result))
-                } else {
-                    Some(Err(HostError::from(
-                        "Plugin is not allowed to register scheduled jobs",
-                    )))
-                }
-            } else {
-                None
-            };
+            scheduled_job_registrations_result
+                .insert(scheduled_job_registration, job_scheduler_result);
+        }
 
-        Ok(JobSchedulerRegistrationsResult {
-            scheduled_jobs: scheduled_jobs_registrations_result,
-        })
+        Ok(scheduled_job_registrations_result)
+    }
+
+    async fn deregister(
+        &mut self,
+        _deregistrations: Deregistrations,
+    ) -> Result<DeregistrationsResult, HostError> {
+        todo!()
     }
 }
-
-impl JobSchedulerImportTypesHost for InternalRuntime {}

@@ -3,12 +3,12 @@
 
 use std::{sync::Arc, time::Duration};
 
-use anyhow::Result;
+use anyhow::{Result, bail};
 use tokio::task::JoinHandle;
 use tracing::debug;
 use wasmtime::{
     Config, Engine, EngineWeak, Store,
-    component::{HasSelf, Linker},
+    component::{Component, HasSelf, Instance, InstancePre, Linker},
 };
 use wasmtime_wasi::{DirPerms, FilePerms, ResourceTable, WasiCtxBuilder};
 use wasmtime_wasi_http::WasiHttpCtx;
@@ -16,7 +16,13 @@ use wasmtime_wasi_http::WasiHttpCtx;
 use crate::runtime::{
     RuntimePlugin,
     internal::InternalRuntime,
-    plugins::{Plugin, RuntimePluginStatePre},
+    plugins::{
+        RuntimePluginStatePre,
+        bindings::{
+            core::Core,
+            services::{discord::Discord, job_scheduler::JobScheduler},
+        },
+    },
 };
 
 static EPOCH_DEADLINE: u64 = 6;
@@ -41,15 +47,28 @@ impl PluginBuilder {
 
         let epoch_handler = Self::engine_increment_epoch(engine.weak());
 
-        // NOTE: Linker notes
-        // - Better way to link dependency plugins (not yet supported with the component model)
-        // - Better way to add logging support
+        // NOTE: Possible linker improvements
+        // - Better tracing/logging support (WASI-tracing)
+        // - Better key-value store support (WASI-keyvalue)
+        // - Better runtime config support (WASI-config)
         let mut linker = Linker::<InternalRuntime>::new(&engine);
 
         wasmtime_wasi::p2::add_to_linker_async(&mut linker).unwrap();
         wasmtime_wasi_http::p2::add_only_http_to_linker_async(&mut linker).unwrap();
 
-        Plugin::add_to_linker::<InternalRuntime, HasSelf<InternalRuntime>>(
+        Core::add_to_linker::<InternalRuntime, HasSelf<InternalRuntime>>(
+            &mut linker,
+            |internal_runtime| internal_runtime,
+        )
+        .unwrap();
+
+        JobScheduler::add_to_linker::<InternalRuntime, HasSelf<InternalRuntime>>(
+            &mut linker,
+            |internal_runtime| internal_runtime,
+        )
+        .unwrap();
+
+        Discord::add_to_linker::<InternalRuntime, HasSelf<InternalRuntime>>(
             &mut linker,
             |internal_runtime| internal_runtime,
         )
@@ -93,13 +112,38 @@ impl PluginBuilder {
     }
 
     #[hotpath::measure]
+    pub fn pre_instantiate(
+        &self,
+        plugin_user_id: &str,
+        bytes: &[u8],
+    ) -> Result<InstancePre<InternalRuntime>> {
+        let component = match Component::new(&self.engine, bytes) {
+            Ok(component) => component,
+            Err(err) => {
+                bail!(
+                    "An error occurred while creating a WASI component from the {plugin_user_id} plugin: {err}"
+                );
+            }
+        };
+
+        match self.linker.instantiate_pre(&component) {
+            Ok(instance_pre) => Ok(instance_pre),
+            Err(err) => {
+                bail!(
+                    "The {plugin_user_id} plugin returned an error while pre-instantiating: {err}"
+                );
+            }
+        }
+    }
+
+    #[hotpath::measure]
     pub async fn instantiate(
         &self,
         plugin: Arc<RuntimePlugin>,
-    ) -> Result<(Plugin, Store<InternalRuntime>)> {
+    ) -> Result<(Instance, Store<InternalRuntime>)> {
         let mut store = self.store_builder(&plugin.state_pre);
 
-        let instance = plugin.plugin_pre.instantiate_async(&mut store).await?;
+        let instance = plugin.instance_pre.instantiate_async(&mut store).await?;
 
         Ok((instance, store))
     }

@@ -11,44 +11,43 @@ use uuid::Uuid;
 
 use crate::{
     Shutdown,
-    runtime::plugins::wpbs::plugin::{
-        core_types::PluginError,
-        discord_export_types::{DiscordEvents, DiscordRegistrationsResultApplicationCommands},
-        discord_import_types::{DiscordRequests, DiscordResponses},
+    runtime::plugins::bindings::{
+        core::wpbs::shared::shared_types::PluginError,
+        services::discord::wpbs_services::discord::discord_types::{
+            DiscordEvents, DiscordRegistrationsResultApplicationCommands, DiscordRequests,
+            DiscordResponses,
+        },
     },
 };
 
 pub enum CoreMessages {
     Runtime(RuntimeMessages),
 
-    JobScheduler(JobSchedulerMessages),
-    Discord(DiscordMessages),
+    Services(CoreMessagesServices),
 
     Shutdown(Shutdown),
 }
 
 pub enum RuntimeMessages {
-    Core(RuntimeMessagesCore),
-    JobScheduler(RuntimeMessagesJobScheduler),
-    Discord(RuntimeMessagesDiscord),
+    Services(RuntimeMessagesServices),
 }
 
-pub enum RuntimeMessagesCore {
-    CallDependencyFunction(
-        Uuid,
-        String,
-        Vec<u8>,
-        OSSender<Result<Vec<u8>, PluginError>>,
-    ),
-    RemovePlugin(Uuid),
+pub enum CoreMessagesServices {
+    JobScheduler(JobSchedulerMessages),
+    Discord(DiscordMessages),
 }
 
-pub enum RuntimeMessagesJobScheduler {
+pub enum RuntimeMessagesServices {
+    JobScheduler(RuntimeMessagesServicesJobScheduler),
+    Discord(RuntimeMessagesServicesDiscord),
+}
+
+pub enum RuntimeMessagesServicesJobScheduler {
     CallScheduledJob(Uuid, Uuid),
 }
 
-pub enum RuntimeMessagesDiscord {
-    CallDiscordApplicationCommands(Uuid, DiscordRegistrationsResultApplicationCommands),
+pub enum RuntimeMessagesServicesDiscord {
+    CallDiscordApplicationCommandsResult(Uuid, DiscordRegistrationsResultApplicationCommands),
     CallDiscordEvent(Uuid, DiscordEvents),
 }
 

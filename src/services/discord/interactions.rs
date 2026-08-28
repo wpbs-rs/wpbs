@@ -21,7 +21,9 @@ use uuid::Uuid;
 
 use crate::{
     services::discord::Discord,
-    utils::channels::{CoreMessages, RuntimeMessages, RuntimeMessagesDiscord},
+    utils::channels::{
+        CoreMessages, RuntimeMessages, RuntimeMessagesServices, RuntimeMessagesServicesDiscord,
+    },
 };
 
 #[derive(Eq, Hash, PartialEq)]
@@ -254,8 +256,12 @@ impl Discord {
         Self::delete_old_application_commands(http_client, application_id, &discord_commands).await;
 
         for result in results {
-            let _ = core_tx.send(CoreMessages::Runtime(RuntimeMessages::Discord(
-                RuntimeMessagesDiscord::CallDiscordApplicationCommands(result.0, result.1),
+            let _ = core_tx.send(CoreMessages::Runtime(RuntimeMessages::Services(
+                RuntimeMessagesServices::Discord(
+                    RuntimeMessagesServicesDiscord::CallDiscordApplicationCommandsResult(
+                        result.0, result.1,
+                    ),
+                ),
             )));
         }
 
