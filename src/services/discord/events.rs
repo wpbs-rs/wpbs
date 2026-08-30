@@ -12,11 +12,13 @@ use twilight_model::application::interaction::InteractionData;
 use uuid::Uuid;
 
 use crate::{
-    runtime::plugins::wpbs::plugin::{
-        discord_export_types::DiscordEvents, discord_import_types::DiscordEventKinds,
+    runtime::plugins::bindings::services::discord::wpbs_services::discord::discord_types::{
+        DiscordEventKinds, DiscordEvents,
     },
     services::discord::Discord,
-    utils::channels::{CoreMessages, RuntimeMessages, RuntimeMessagesDiscord},
+    utils::channels::{
+        CoreMessages, RuntimeMessages, RuntimeMessagesServices, RuntimeMessagesServicesDiscord,
+    },
 };
 
 impl Discord {
@@ -41,11 +43,13 @@ impl Discord {
                         if let Some(plugin_uuid_bytes) =
                             application_command_keyspace.get(command_data.id.get().to_ne_bytes())?
                         {
-                            let _ = core_tx.send(CoreMessages::Runtime(RuntimeMessages::Discord(
-                                RuntimeMessagesDiscord::CallDiscordEvent(
-                                    Uuid::from_slice(&plugin_uuid_bytes).unwrap(),
-                                    DiscordEvents::InteractionCreate(
-                                        sonic_rs::to_string(&interaction_create).unwrap(),
+                            let _ = core_tx.send(CoreMessages::Runtime(RuntimeMessages::Services(
+                                RuntimeMessagesServices::Discord(
+                                    RuntimeMessagesServicesDiscord::CallDiscordEvent(
+                                        Uuid::from_slice(&plugin_uuid_bytes).unwrap(),
+                                        DiscordEvents::InteractionCreate(
+                                            sonic_rs::to_vec(&interaction_create).unwrap(),
+                                        ),
                                     ),
                                 ),
                             )));
@@ -66,11 +70,13 @@ impl Discord {
                         if let Some(plugin_uuid_bytes) =
                             message_components_keyspace.get(message_component_id.as_bytes())?
                         {
-                            let _ = core_tx.send(CoreMessages::Runtime(RuntimeMessages::Discord(
-                                RuntimeMessagesDiscord::CallDiscordEvent(
-                                    Uuid::from_slice(&plugin_uuid_bytes).unwrap(),
-                                    DiscordEvents::InteractionCreate(
-                                        sonic_rs::to_string(&interaction_create).unwrap(),
+                            let _ = core_tx.send(CoreMessages::Runtime(RuntimeMessages::Services(
+                                RuntimeMessagesServices::Discord(
+                                    RuntimeMessagesServicesDiscord::CallDiscordEvent(
+                                        Uuid::from_slice(&plugin_uuid_bytes).unwrap(),
+                                        DiscordEvents::InteractionCreate(
+                                            sonic_rs::to_vec(&interaction_create).unwrap(),
+                                        ),
                                     ),
                                 ),
                             )));
@@ -85,11 +91,13 @@ impl Discord {
                             database.keyspace("discord_modals", KeyspaceCreateOptions::default)?;
 
                         if let Some(plugin_uuid_bytes) = modals_keyspace.get(modal_id.as_bytes())? {
-                            let _ = core_tx.send(CoreMessages::Runtime(RuntimeMessages::Discord(
-                                RuntimeMessagesDiscord::CallDiscordEvent(
-                                    Uuid::from_slice(&plugin_uuid_bytes).unwrap(),
-                                    DiscordEvents::InteractionCreate(
-                                        sonic_rs::to_string(&interaction_create).unwrap(),
+                            let _ = core_tx.send(CoreMessages::Runtime(RuntimeMessages::Services(
+                                RuntimeMessagesServices::Discord(
+                                    RuntimeMessagesServicesDiscord::CallDiscordEvent(
+                                        Uuid::from_slice(&plugin_uuid_bytes).unwrap(),
+                                        DiscordEvents::InteractionCreate(
+                                            sonic_rs::to_vec(&interaction_create).unwrap(),
+                                        ),
                                     ),
                                 ),
                             )));
@@ -106,7 +114,7 @@ impl Discord {
                     database,
                     core_tx,
                     DiscordEventKinds::MessageCreate,
-                    &DiscordEvents::MessageCreate(sonic_rs::to_string(&message_create).unwrap()),
+                    &DiscordEvents::MessageCreate(sonic_rs::to_vec(&message_create).unwrap()),
                 )?;
             }
             Event::ThreadCreate(thread_create) => {
@@ -114,7 +122,7 @@ impl Discord {
                     database,
                     core_tx,
                     DiscordEventKinds::ThreadCreate,
-                    &DiscordEvents::ThreadCreate(sonic_rs::to_string(&thread_create).unwrap()),
+                    &DiscordEvents::ThreadCreate(sonic_rs::to_vec(&thread_create).unwrap()),
                 )?;
             }
             Event::ThreadDelete(thread_delete) => {
@@ -122,7 +130,7 @@ impl Discord {
                     database,
                     core_tx,
                     DiscordEventKinds::ThreadDelete,
-                    &DiscordEvents::ThreadDelete(sonic_rs::to_string(&thread_delete).unwrap()),
+                    &DiscordEvents::ThreadDelete(sonic_rs::to_vec(&thread_delete).unwrap()),
                 )?;
             }
             Event::ThreadListSync(thread_list_sync) => {
@@ -130,7 +138,7 @@ impl Discord {
                     database,
                     core_tx,
                     DiscordEventKinds::ThreadListSync,
-                    &DiscordEvents::ThreadListSync(sonic_rs::to_string(&thread_list_sync).unwrap()),
+                    &DiscordEvents::ThreadListSync(sonic_rs::to_vec(&thread_list_sync).unwrap()),
                 )?;
             }
             Event::ThreadMemberUpdate(thread_member_update) => {
@@ -139,7 +147,7 @@ impl Discord {
                     core_tx,
                     DiscordEventKinds::ThreadMemberUpdate,
                     &DiscordEvents::ThreadMemberUpdate(
-                        sonic_rs::to_string(&thread_member_update).unwrap(),
+                        sonic_rs::to_vec(&thread_member_update).unwrap(),
                     ),
                 )?;
             }
@@ -149,7 +157,7 @@ impl Discord {
                     core_tx,
                     DiscordEventKinds::ThreadMembersUpdate,
                     &DiscordEvents::ThreadMembersUpdate(
-                        sonic_rs::to_string(&thread_members_update).unwrap(),
+                        sonic_rs::to_vec(&thread_members_update).unwrap(),
                     ),
                 )?;
             }
@@ -158,7 +166,7 @@ impl Discord {
                     database,
                     core_tx,
                     DiscordEventKinds::ThreadUpdate,
-                    &DiscordEvents::ThreadUpdate(sonic_rs::to_string(&thread_update).unwrap()),
+                    &DiscordEvents::ThreadUpdate(sonic_rs::to_vec(&thread_update).unwrap()),
                 )?;
             }
             _ => debug!("Received unsupported event: {:?}", event.kind()),
@@ -181,8 +189,11 @@ impl Discord {
         for entry in entries {
             let plugin_uuid = Uuid::from_slice(&entry.value().unwrap()).unwrap();
 
-            let _ = core_tx.send(CoreMessages::Runtime(RuntimeMessages::Discord(
-                RuntimeMessagesDiscord::CallDiscordEvent(plugin_uuid, event.clone()),
+            let _ = core_tx.send(CoreMessages::Runtime(RuntimeMessages::Services(
+                RuntimeMessagesServices::Discord(RuntimeMessagesServicesDiscord::CallDiscordEvent(
+                    plugin_uuid,
+                    event.clone(),
+                )),
             )));
         }
 

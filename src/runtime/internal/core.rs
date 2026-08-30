@@ -1,35 +1,33 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 /* Copyright © 2026 Eduard Smet */
 
-use std::{collections::HashMap, fmt::Write};
+use std::future;
 
-use fjall::{Guard, KeyspaceCreateOptions};
-use tokio::sync::oneshot::channel;
+use fjall::KeyspaceCreateOptions;
 use tracing::{debug, error, info, trace, warn};
-use uuid::Uuid;
 
 use crate::{
     Shutdown,
     config::plugins::permissions::core::PluginPermissionsCore,
     runtime::{
         internal::InternalRuntime,
-        plugins::wpbs::plugin::{
-            core_import_functions::Host as CoreImportFunctionsHost,
-            core_import_types::{
-                CoreRegistrations, CoreRegistrationsResult, Deregistrations, DeregistrationsResult,
-                Host as CoreImportTypesHost, LogLevels, Registrations, RegistrationsResult,
+        plugins::bindings::core::wpbs::{
+            core::{
+                core_import_functions::Host as CoreImportFunctionsHost,
+                core_types::{Host as CoreTypesHost, LogLevels},
             },
-            core_types::{Host as CoreTypesHost, HostError},
+            shared::shared_types::{Host as SharedTypesHost, HostError},
         },
     },
-    utils::channels::{CoreMessages, RuntimeMessages, RuntimeMessagesCore},
+    utils::channels::CoreMessages,
 };
 
+impl SharedTypesHost for InternalRuntime {}
+
 impl CoreTypesHost for InternalRuntime {}
-impl CoreImportTypesHost for InternalRuntime {}
 
 impl CoreImportFunctionsHost for InternalRuntime {
-    async fn log(&mut self, level: LogLevels, message: String) {
+    fn log(&mut self, level: LogLevels, message: String) -> impl Future<Output = ()> + Send {
         match level {
             LogLevels::Trace => trace!("[{}]: {message}", self.metadata.user_id),
             LogLevels::Debug => debug!("[{}]: {message}", self.metadata.user_id),
@@ -37,107 +35,131 @@ impl CoreImportFunctionsHost for InternalRuntime {
             LogLevels::Warn => warn!("[{}]: {message}", self.metadata.user_id),
             LogLevels::Error => error!("[{}]: {message}", self.metadata.user_id),
         }
+
+        future::ready(())
     }
 
-    async fn get_state(&mut self, key: String) -> Result<Option<Vec<u8>>, HostError> {
+    fn get_value(
+        &mut self,
+        key: String,
+    ) -> impl Future<Output = Result<Option<Vec<u8>>, HostError>> + Send {
         let key = format!("{}:{key}", self.metadata.plugin_uuid);
 
-        let plugin_store_keyspace = self
+        let plugin_store_keyspace = match self
             .database
             .keyspace("plugin_store", KeyspaceCreateOptions::default)
-            .map_err(|err| err.to_string())?;
+        {
+            Ok(plugin_store_keyspace) => plugin_store_keyspace,
+            Err(err) => return future::ready(Err(err.to_string())),
+        };
 
-        plugin_store_keyspace
-            .get(&key)
-            .map_err(|err| err.to_string())
-            .map(|r| r.map(|s| s.to_vec()))
+        future::ready(
+            plugin_store_keyspace
+                .get(&key)
+                .map_err(|err| err.to_string())
+                .map(|r| r.map(|s| s.to_vec())),
+        )
     }
 
-    async fn set_state(&mut self, key: String, value: Vec<u8>) -> Result<(), HostError> {
+    fn set_value(
+        &mut self,
+        key: String,
+        value: Vec<u8>,
+    ) -> impl Future<Output = Result<(), HostError>> + Send {
         let key = format!("{}:{key}", self.metadata.plugin_uuid);
 
-        let plugin_store_keyspace = self
+        let plugin_store_keyspace = match self
             .database
             .keyspace("plugin_store", KeyspaceCreateOptions::default)
-            .map_err(|err| err.to_string())?;
+        {
+            Ok(plugin_store_keyspace) => plugin_store_keyspace,
+            Err(err) => return future::ready(Err(err.to_string())),
+        };
 
-        plugin_store_keyspace
-            .insert(&key, &value)
-            .map_err(|err| err.to_string())
+        future::ready(
+            plugin_store_keyspace
+                .insert(&key, &value)
+                .map_err(|err| err.to_string()),
+        )
     }
 
-    async fn clear_state(&mut self) -> Result<(), HostError> {
-        let plugin_store_keyspace = self
+    fn remove_value(&mut self, key: String) -> impl Future<Output = Result<(), HostError>> + Send {
+        let key = format!("{}:{key}", self.metadata.plugin_uuid);
+
+        let plugin_store_keyspace = match self
             .database
             .keyspace("plugin_store", KeyspaceCreateOptions::default)
-            .map_err(|err| err.to_string())?;
+        {
+            Ok(plugin_store_keyspace) => plugin_store_keyspace,
+            Err(err) => return future::ready(Err(err.to_string())),
+        };
+
+        future::ready(
+            plugin_store_keyspace
+                .remove(&key)
+                .map_err(|err| err.to_string()),
+        )
+    }
+
+    fn get_all_entries(
+        &mut self,
+    ) -> impl Future<Output = Result<Vec<(String, Vec<u8>)>, HostError>> + Send {
+        let plugin_store_keyspace = match self
+            .database
+            .keyspace("plugin_store", KeyspaceCreateOptions::default)
+        {
+            Ok(plugin_store_keyspace) => plugin_store_keyspace,
+            Err(err) => return future::ready(Err(err.to_string())),
+        };
+
+        future::ready(
+            plugin_store_keyspace
+                .prefix(self.metadata.plugin_uuid.as_bytes())
+                .map(|g| {
+                    let (key, value) = g.into_inner()?;
+
+                    Ok((String::from_utf8(key.to_vec()).unwrap(), value.to_vec()))
+                })
+                .collect::<Result<Vec<(String, Vec<u8>)>, anyhow::Error>>()
+                .map_err(|err| err.to_string()),
+        )
+    }
+
+    fn clear_all_entries(&mut self) -> impl Future<Output = Result<(), HostError>> + Send {
+        let plugin_store_keyspace = match self
+            .database
+            .keyspace("plugin_store", KeyspaceCreateOptions::default)
+        {
+            Ok(plugin_store_keyspace) => plugin_store_keyspace,
+            Err(err) => return future::ready(Err(err.to_string())),
+        };
 
         let entries = plugin_store_keyspace.prefix(self.metadata.plugin_uuid.as_bytes());
 
         for entry in entries {
-            plugin_store_keyspace
-                .remove(entry.key().map_err(|err| err.to_string())?)
-                .map_err(|err| err.to_string())?;
-        }
-
-        Ok(())
-    }
-
-    async fn register(&mut self, registrations: Registrations) -> RegistrationsResult {
-        let core_registrations_result = registrations.core.map(|cr| self.register_core(cr));
-
-        let services_registrations_result =
-            if let Some(services_registrations) = registrations.services {
-                Some(
-                    Self::register_services(
-                        self.database.clone(),
-                        self.core_tx.clone(),
-                        self.metadata.clone(),
-                        services_registrations,
-                    )
-                    .await,
-                )
-            } else {
-                None
+            let key = match entry.key() {
+                Ok(key) => key,
+                Err(err) => return future::ready(Err(err.to_string())),
             };
 
-        RegistrationsResult {
-            core: core_registrations_result,
-            services: services_registrations_result,
+            if let Err(err) = plugin_store_keyspace.remove(key) {
+                return future::ready(Err(err.to_string()));
+            }
         }
+
+        future::ready(Ok(()))
     }
 
-    // TODO: Implement
-    async fn deregister(&mut self, _deregistrations: Deregistrations) -> DeregistrationsResult {
-        DeregistrationsResult {
-            core: None,
-            services: None,
-        }
-    }
-
-    async fn remove(&mut self, reason: String) {
-        if self
-            .core_tx
-            .send(CoreMessages::Runtime(RuntimeMessages::Core(
-                RuntimeMessagesCore::RemovePlugin(self.metadata.plugin_uuid),
-            )))
-            .is_ok()
-        {
-            info!(
-                "The {} plugin has unloaded itself, reason: {reason}",
-                self.metadata.user_id
-            );
-        }
-    }
-
-    async fn shutdown(&mut self, restart: bool) -> Result<(), HostError> {
+    fn shutdown(&mut self, restart: bool) -> impl Future<Output = Result<(), HostError>> + Send {
         if !self
             .metadata
             .permissions
             .core
             .contains(&PluginPermissionsCore::Shutdown)
         {
-            return Err(HostError::from("Not allowed to call shutdown"));
+            return future::ready(Err(HostError::from(
+                "Plugin does not have the permission to call shutdown",
+            )));
         }
 
         let shutdown_kind = if restart {
@@ -150,104 +172,6 @@ impl CoreImportFunctionsHost for InternalRuntime {
             .send(CoreMessages::Shutdown(shutdown_kind))
             .unwrap();
 
-        Ok(())
-    }
-
-    async fn dependency_function(
-        &mut self,
-        registry_id: String,
-        plugin_id: String,
-        function_id: String,
-        plugin_version: Option<String>,
-        params: Vec<u8>,
-    ) -> Result<Vec<u8>, HostError> {
-        let mut signature = format!("{registry_id}:{plugin_id}:{function_id}@");
-
-        if let Some(plugin_version) = plugin_version {
-            write!(signature, "{plugin_version}").unwrap();
-        }
-
-        let dependency_functions_keyspace = self
-            .database
-            .keyspace("dependency_functions", KeyspaceCreateOptions::default)
-            .map_err(|err| err.to_string())?;
-
-        let Some(plugin_uuid_bytes) = dependency_functions_keyspace
-            .prefix(&signature)
-            .next()
-            .map(Guard::value)
-            .transpose()
-            .map_err(|err| err.to_string())?
-        else {
-            return Err(format!("The {signature} dependency function was not found"));
-        };
-
-        let (sender, receiver) = channel();
-
-        let _ = self
-            .core_tx
-            .send(CoreMessages::Runtime(RuntimeMessages::Core(
-                RuntimeMessagesCore::CallDependencyFunction(
-                    Uuid::from_slice(&plugin_uuid_bytes).unwrap(),
-                    signature,
-                    params,
-                    sender,
-                ),
-            )));
-
-        receiver
-            .await
-            .unwrap_or(Err(HostError::from("Runtime is shutting down")))
-    }
-}
-
-impl InternalRuntime {
-    fn register_core(&self, core_registrations: CoreRegistrations) -> CoreRegistrationsResult {
-        let dependency_functions = core_registrations
-            .dependency_functions
-            .map(|dfr| self.register_dependency_functions(dfr));
-
-        CoreRegistrationsResult {
-            dependency_functions,
-        }
-    }
-
-    fn register_dependency_functions(
-        &self,
-        dependency_function_registrations: Vec<String>,
-    ) -> Result<HashMap<String, String>, HostError> {
-        if !self
-            .metadata
-            .permissions
-            .core
-            .contains(&PluginPermissionsCore::DependencyFunctions)
-        {
-            return Err(HostError::from(
-                "Plugin is not allowed to register dependency functions",
-            ));
-        }
-
-        let mut dependency_function_registrations_result = HashMap::new();
-
-        let dependency_functions_keyspace = self
-            .database
-            .keyspace("dependency_functions", KeyspaceCreateOptions::default)
-            .map_err(|err| err.to_string())?;
-
-        for dependency_function_registration in dependency_function_registrations {
-            let signature = format!(
-                "{}:{}:{dependency_function_registration}@{}",
-                self.metadata.namespace_id, self.metadata.plugin_id, self.metadata.version
-            );
-
-            dependency_functions_keyspace
-                .insert(&signature, self.metadata.plugin_uuid.as_bytes())
-                .map_err(|err| err.to_string())?;
-
-            dependency_function_registrations_result
-                .insert(dependency_function_registration, signature);
-        }
-
-        Ok(dependency_function_registrations_result)
+        future::ready(Ok(()))
     }
 }

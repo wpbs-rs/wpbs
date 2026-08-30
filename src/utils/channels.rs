@@ -1,6 +1,8 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 /* Copyright © 2026 Eduard Smet */
 
+use std::sync::Arc;
+
 use anyhow::Result;
 use tokio::sync::{
     mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel},
@@ -11,59 +13,54 @@ use uuid::Uuid;
 
 use crate::{
     Shutdown,
-    runtime::plugins::wpbs::plugin::{
-        core_types::PluginError,
-        discord_export_types::{DiscordEvents, DiscordRegistrationsResultApplicationCommands},
-        discord_import_types::{DiscordRequests, DiscordResponses},
+    runtime::plugins::bindings::services::{
+        discord::wpbs_services::discord::discord_types::{
+            DiscordEvents, DiscordRegistrationsResultApplicationCommands, DiscordRequests,
+            DiscordResponses,
+        },
+        job_scheduler::wpbs_services::job_scheduler::job_scheduler_types::Cron,
     },
 };
 
 pub enum CoreMessages {
     Runtime(RuntimeMessages),
 
-    JobScheduler(JobSchedulerMessages),
-    Discord(DiscordMessages),
+    Services(CoreMessagesServices),
 
     Shutdown(Shutdown),
 }
 
 pub enum RuntimeMessages {
-    Core(RuntimeMessagesCore),
-    JobScheduler(RuntimeMessagesJobScheduler),
-    Discord(RuntimeMessagesDiscord),
+    Services(RuntimeMessagesServices),
 }
 
-pub enum RuntimeMessagesCore {
-    CallDependencyFunction(
-        Uuid,
-        String,
-        Vec<u8>,
-        OSSender<Result<Vec<u8>, PluginError>>,
-    ),
-    RemovePlugin(Uuid),
+pub enum RuntimeMessagesServices {
+    JobScheduler(RuntimeMessagesServicesJobScheduler),
+    Discord(RuntimeMessagesServicesDiscord),
 }
 
-pub enum RuntimeMessagesJobScheduler {
-    CallScheduledJob(Uuid, Uuid),
+pub enum RuntimeMessagesServicesJobScheduler {
+    CallScheduledJob(Uuid, Arc<Cron>),
 }
 
-pub enum RuntimeMessagesDiscord {
-    CallDiscordApplicationCommands(Uuid, DiscordRegistrationsResultApplicationCommands),
+pub enum RuntimeMessagesServicesDiscord {
+    CallDiscordApplicationCommandsResult(Uuid, DiscordRegistrationsResultApplicationCommands),
     CallDiscordEvent(Uuid, DiscordEvents),
 }
 
+pub enum CoreMessagesServices {
+    JobScheduler(JobSchedulerMessages),
+    Discord(DiscordMessages),
+}
+
 pub enum JobSchedulerMessages {
-    AddJob(Uuid, String, OSSender<Result<Uuid>>),
-    #[allow(unused)]
-    RemoveJob(Uuid, OSSender<Result<()>>),
+    AddJob(Uuid, String, OSSender<Result<()>>),
+    RemoveJob(Uuid, String, OSSender<Result<()>>),
 }
 
 pub enum DiscordMessages {
     RegisterApplicationCommands,
-    Request(
-        DiscordRequests,
-        OSSender<Result<Option<DiscordResponses>, PluginError>>,
-    ),
+    Request(DiscordRequests, OSSender<Result<Option<DiscordResponses>>>),
 }
 
 pub struct Channels {

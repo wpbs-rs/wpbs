@@ -4,22 +4,54 @@
 use std::{path::PathBuf, sync::Arc};
 
 use fjall::Database;
-use semver::Version;
 use tokio::sync::mpsc::UnboundedSender;
 use uuid::Uuid;
+use wasmtime::component::InstancePre;
 
 use crate::{
-    config::plugins::permissions::PluginPermissions, runtime::internal::InternalRuntime,
+    config::plugins::permissions::PluginPermissions,
+    runtime::{
+        internal::InternalRuntime,
+        plugins::bindings::{
+            core::CoreIndices,
+            services::{discord::DiscordIndices, job_scheduler::JobSchedulerIndices},
+        },
+    },
     utils::channels::CoreMessages,
 };
 
 pub mod builder;
 
-wasmtime::component::bindgen!({ imports: { default: async }, exports: { default: async } });
+pub mod bindings {
+    pub mod core {
+        wasmtime::component::bindgen!({ path: "./wit/core/", imports: { default: async }, exports: { default: async } });
+    }
+
+    pub mod services {
+        pub mod job_scheduler {
+            wasmtime::component::bindgen!({ path: "./wit/services/job-scheduler/", imports: { default: async }, exports: { default: async } });
+        }
+
+        pub mod discord {
+            wasmtime::component::bindgen!({ path: "./wit/services/discord/", imports: { default: async }, exports: { default: async } });
+        }
+    }
+}
 
 pub struct RuntimePlugin {
-    pub plugin_pre: PluginPre<InternalRuntime>,
+    pub instance_pre: InstancePre<InternalRuntime>,
     pub state_pre: RuntimePluginStatePre,
+    pub indices: RuntimePluginIndices,
+}
+
+pub struct RuntimePluginIndices {
+    pub core: CoreIndices,
+    pub services: RuntimePluginIndicesServices,
+}
+
+pub struct RuntimePluginIndicesServices {
+    pub job_scheduler: Option<JobSchedulerIndices>,
+    pub discord: Option<DiscordIndices>,
 }
 
 pub struct RuntimePluginStatePre {
@@ -32,9 +64,6 @@ pub struct RuntimePluginStatePre {
 
 pub struct RuntimePluginMetadata {
     pub plugin_uuid: Uuid,
-    pub namespace_id: String,
-    pub plugin_id: String,
-    pub version: Version,
     pub user_id: String,
     pub permissions: PluginPermissions,
 }
