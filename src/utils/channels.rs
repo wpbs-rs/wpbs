@@ -1,6 +1,8 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 /* Copyright © 2026 Eduard Smet */
 
+use std::sync::Arc;
+
 use anyhow::Result;
 use tokio::sync::{
     mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel},
@@ -11,12 +13,12 @@ use uuid::Uuid;
 
 use crate::{
     Shutdown,
-    runtime::plugins::bindings::{
-        core::wpbs::shared::shared_types::PluginError,
-        services::discord::wpbs_services::discord::discord_types::{
+    runtime::plugins::bindings::services::{
+        discord::wpbs_services::discord::discord_types::{
             DiscordEvents, DiscordRegistrationsResultApplicationCommands, DiscordRequests,
             DiscordResponses,
         },
+        job_scheduler::wpbs_services::job_scheduler::job_scheduler_types::Cron,
     },
 };
 
@@ -32,18 +34,13 @@ pub enum RuntimeMessages {
     Services(RuntimeMessagesServices),
 }
 
-pub enum CoreMessagesServices {
-    JobScheduler(JobSchedulerMessages),
-    Discord(DiscordMessages),
-}
-
 pub enum RuntimeMessagesServices {
     JobScheduler(RuntimeMessagesServicesJobScheduler),
     Discord(RuntimeMessagesServicesDiscord),
 }
 
 pub enum RuntimeMessagesServicesJobScheduler {
-    CallScheduledJob(Uuid, Uuid),
+    CallScheduledJob(Uuid, Arc<Cron>),
 }
 
 pub enum RuntimeMessagesServicesDiscord {
@@ -51,18 +48,19 @@ pub enum RuntimeMessagesServicesDiscord {
     CallDiscordEvent(Uuid, DiscordEvents),
 }
 
+pub enum CoreMessagesServices {
+    JobScheduler(JobSchedulerMessages),
+    Discord(DiscordMessages),
+}
+
 pub enum JobSchedulerMessages {
-    AddJob(Uuid, String, OSSender<Result<Uuid>>),
-    #[allow(unused)]
-    RemoveJob(Uuid, OSSender<Result<()>>),
+    AddJob(Uuid, String, OSSender<Result<()>>),
+    RemoveJob(Uuid, String, OSSender<Result<()>>),
 }
 
 pub enum DiscordMessages {
     RegisterApplicationCommands,
-    Request(
-        DiscordRequests,
-        OSSender<Result<Option<DiscordResponses>, PluginError>>,
-    ),
+    Request(DiscordRequests, OSSender<Result<Option<DiscordResponses>>>),
 }
 
 pub struct Channels {

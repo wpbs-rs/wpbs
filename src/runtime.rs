@@ -250,7 +250,7 @@ impl Runtime {
                             match job_scheduler_message {
                                 RuntimeMessagesServicesJobScheduler::CallScheduledJob(
                                     plugin_uuid,
-                                    job_uuid,
+                                    cron,
                                 ) => {
                                     let plugins = self.plugins.clone();
                                     let plugin_builder = self.plugin_builder.clone();
@@ -265,7 +265,7 @@ impl Runtime {
                                             Self::call_scheduled_job(
                                                 plugin_builder,
                                                 plugin,
-                                                job_uuid,
+                                                cron,
                                             )
                                             .await;
                                         }
@@ -330,10 +330,10 @@ impl Runtime {
     async fn call_scheduled_job(
         plugin_builder: Arc<PluginBuilder>,
         plugin: Arc<RuntimePlugin>,
-        job_uuid: Uuid,
+        cron: Arc<String>,
     ) {
         debug!(
-            "Calling the {job_uuid} scheduled job of the {} plugin",
+            "Calling the {cron} scheduled job of the {} plugin",
             plugin.state_pre.metadata.user_id
         );
 
@@ -362,7 +362,7 @@ impl Runtime {
 
         match job_scheduler_instance
             .wpbs_services_job_scheduler_job_scheduler_export_functions()
-            .call_scheduled_job(store, &job_uuid.to_string())
+            .call_scheduled_job(store, &cron)
             .await
         {
             Ok(result) => {

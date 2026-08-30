@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 /* Copyright © 2026 Eduard Smet */
 
-use std::sync::Arc;
+use std::{collections::HashMap, future, sync::Arc};
 
 use fjall::{Database, KeyspaceCreateOptions};
 use tokio::sync::oneshot::channel;
@@ -90,36 +90,80 @@ impl DiscordImportFunctionsHost for InternalRuntime {
         todo!()
     }
 
+    fn get_discord_message_component_id(
+        &mut self,
+        name: String,
+    ) -> impl Future<Output = Result<Option<String>, HostError>> + Send {
+        let message_components_keyspace = match self
+            .database
+            .keyspace("discord_message_components", KeyspaceCreateOptions::default)
+        {
+            Ok(message_components_keyspace) => message_components_keyspace,
+            Err(err) => return future::ready(Err(err.to_string())),
+        };
+
+        let key = format!("{}:{name}", self.metadata.plugin_uuid);
+
+        future::ready(
+            message_components_keyspace
+                .get(&key)
+                .map(|v| v.map(|v| Uuid::from_slice(&v).unwrap().to_string()))
+                .map_err(|err| err.to_string()),
+        )
+    }
+
+    fn get_discord_modal_id(
+        &mut self,
+        name: String,
+    ) -> impl Future<Output = Result<Option<String>, HostError>> {
+        let modals_keyspace = match self
+            .database
+            .keyspace("discord_modals", KeyspaceCreateOptions::default)
+        {
+            Ok(modals_keyspace) => modals_keyspace,
+            Err(err) => return future::ready(Err(err.to_string())),
+        };
+
+        let key = format!("{}:{name}", self.metadata.plugin_uuid);
+
+        future::ready(
+            modals_keyspace
+                .get(&key)
+                .map(|v| v.map(|v| Uuid::from_slice(&v).unwrap().to_string()))
+                .map_err(|err| err.to_string()),
+        )
+    }
+
     async fn discord_request(
         &mut self,
         request: DiscordRequests,
     ) -> Result<Option<DiscordResponses>, HostError> {
         let (sender, receiver) = channel();
 
-        if TASKS.read().await.services.discord.is_some() {
-            if !self
-                .metadata
-                .permissions
-                .services
-                .discord
-                .requests
-                .contains(&(&request).into())
-            {
-                return Err(HostError::from(
-                    "Plugin does not have the permission to make this Discord request",
-                ));
-            }
-
-            self.core_tx
-                .send(CoreMessages::Services(CoreMessagesServices::Discord(
-                    DiscordMessages::Request(request, sender),
-                )))
-                .unwrap();
-
-            receiver.await.unwrap()
-        } else {
-            Err(HostError::from("The Discord service is disabled"))
+        if TASKS.read().await.services.discord.is_none() {
+            return Err(HostError::from("The Discord service is disabled"));
         }
+
+        if !self
+            .metadata
+            .permissions
+            .services
+            .discord
+            .requests
+            .contains(&(&request).into())
+        {
+            return Err(HostError::from(
+                "Plugin does not have the permission to make this Discord request",
+            ));
+        }
+
+        self.core_tx
+            .send(CoreMessages::Services(CoreMessagesServices::Discord(
+                DiscordMessages::Request(request, sender),
+            )))
+            .unwrap();
+
+        receiver.await.unwrap().map_err(|err| err.to_string())
     }
 }
 
@@ -212,8 +256,8 @@ impl InternalRuntime {
     fn register_discord_message_components(
         database: &Database,
         plugin_metadata: &Arc<RuntimePluginMetadata>,
-        message_component_registrations: u16,
-    ) -> Result<Vec<String>, HostError> {
+        message_component_registrations: Vec<String>,
+    ) -> Result<HashMap<String, String>, HostError> {
         if !plugin_metadata
             .permissions
             .services
@@ -226,13 +270,13 @@ impl InternalRuntime {
             ));
         }
 
-        let mut message_component_registrations_result = Vec::new();
+        let mut message_component_registrations_result = HashMap::new();
 
         let message_components_keyspace = database
             .keyspace("discord_message_components", KeyspaceCreateOptions::default)
             .map_err(|err| err.to_string())?;
 
-        for _ in 0..message_component_registrations {
+        for message_component_registration in message_component_registrations {
             let message_component_uuid = Uuid::new_v4();
 
             message_components_keyspace
@@ -242,7 +286,19 @@ impl InternalRuntime {
                 )
                 .map_err(|err| err.to_string())?;
 
-            message_component_registrations_result.push(message_component_uuid.to_string());
+            let key = format!(
+                "{}:{}",
+                plugin_metadata.plugin_uuid, message_component_registration
+            );
+
+            message_components_keyspace
+                .insert(&key, message_component_uuid.as_bytes())
+                .map_err(|err| err.to_string())?;
+
+            message_component_registrations_result.insert(
+                message_component_registration,
+                message_component_uuid.to_string(),
+            );
         }
 
         Ok(message_component_registrations_result)
@@ -251,8 +307,8 @@ impl InternalRuntime {
     fn register_discord_modals(
         database: &Database,
         plugin_metadata: &Arc<RuntimePluginMetadata>,
-        modal_registrations: u16,
-    ) -> Result<Vec<String>, HostError> {
+        modal_registrations: Vec<String>,
+    ) -> Result<HashMap<String, String>, HostError> {
         if !plugin_metadata
             .permissions
             .services
@@ -265,13 +321,13 @@ impl InternalRuntime {
             ));
         }
 
-        let mut modal_registrations_result = Vec::new();
+        let mut modal_registrations_result = HashMap::new();
 
         let modals_keyspace = database
             .keyspace("discord_modals", KeyspaceCreateOptions::default)
             .map_err(|err| err.to_string())?;
 
-        for _ in 0..modal_registrations {
+        for modal_registration in modal_registrations {
             let modal_uuid = Uuid::new_v4();
 
             modals_keyspace
@@ -281,7 +337,13 @@ impl InternalRuntime {
                 )
                 .map_err(|err| err.to_string())?;
 
-            modal_registrations_result.push(modal_uuid.to_string());
+            let key = format!("{}:{}", plugin_metadata.plugin_uuid, modal_registration);
+
+            modals_keyspace
+                .insert(&key, modal_uuid.as_bytes())
+                .map_err(|err| err.to_string())?;
+
+            modal_registrations_result.insert(modal_registration, modal_uuid.to_string());
         }
 
         Ok(modal_registrations_result)

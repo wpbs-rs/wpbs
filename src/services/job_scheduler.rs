@@ -24,7 +24,7 @@ use crate::utils::channels::{
 };
 
 pub struct JobScheduler {
-    jobs: Arc<RwLock<HashMap<Uuid, JoinHandle<()>>>>,
+    jobs: Arc<RwLock<HashMap<String, JoinHandle<()>>>>,
     core_tx: UnboundedSender<CoreMessages>,
     rx: UnboundedReceiver<JobSchedulerMessages>,
 }
@@ -62,11 +62,13 @@ impl JobScheduler {
                                 .unwrap();
                         });
                     }
-                    JobSchedulerMessages::RemoveJob(job_uuid, sender) => {
+                    JobSchedulerMessages::RemoveJob(plugin_uuid, cron, sender) => {
                         let jobs = self.jobs.clone();
 
                         task_tracker.spawn(async move {
-                            sender.send(Self::remove_job(jobs, job_uuid).await).unwrap();
+                            sender
+                                .send(Self::remove_job(jobs, plugin_uuid, cron).await)
+                                .unwrap();
                         });
                     }
                 }
@@ -80,16 +82,24 @@ impl JobScheduler {
     }
 
     async fn add_job(
-        jobs: Arc<RwLock<HashMap<Uuid, JoinHandle<()>>>>,
+        jobs: Arc<RwLock<HashMap<String, JoinHandle<()>>>>,
         core_tx: UnboundedSender<CoreMessages>,
         plugin_uuid: Uuid,
         cron: String,
-    ) -> Result<Uuid> {
+    ) -> Result<()> {
         info!(
             "Scheduled Job at {cron} cron from the {plugin_uuid} plugin requested to be registered"
         );
 
-        let job_uuid = Uuid::new_v4();
+        let cron = Arc::new(cron);
+
+        let key = format!("{plugin_uuid}:{cron}");
+
+        let mut jobs = jobs.write().await;
+
+        if jobs.contains_key(&key) {
+            return Ok(());
+        }
 
         let schedule = Schedule::from_str(&cron)?;
 
@@ -103,25 +113,28 @@ impl JobScheduler {
                     RuntimeMessagesServices::JobScheduler(
                         RuntimeMessagesServicesJobScheduler::CallScheduledJob(
                             plugin_uuid,
-                            job_uuid,
+                            cron.clone(),
                         ),
                     ),
                 )));
             }
         });
 
-        jobs.write().await.insert(job_uuid, task);
+        jobs.insert(key, task);
 
-        Ok(job_uuid)
+        Ok(())
     }
 
     async fn remove_job(
-        jobs: Arc<RwLock<HashMap<Uuid, JoinHandle<()>>>>,
-        job_uuid: Uuid,
+        jobs: Arc<RwLock<HashMap<String, JoinHandle<()>>>>,
+        plugin_uuid: Uuid,
+        cron: String,
     ) -> Result<()> {
-        info!("Removing scheduled job {job_uuid}");
+        info!("Removing scheduled job {cron} from the {plugin_uuid} plugin");
 
-        if let Some(job) = jobs.write().await.remove(&job_uuid) {
+        let key = format!("{plugin_uuid}:{cron}");
+
+        if let Some(job) = jobs.write().await.remove(&key) {
             job.abort();
 
             let _ = job.await;

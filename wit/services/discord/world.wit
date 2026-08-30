@@ -16,15 +16,17 @@ world discord {
 @since(version = 0.1.0)
 interface discord-import-functions {
     use discord-types.{discord-deregistrations, discord-deregistrations-result, discord-registrations, discord-registrations-result, discord-requests, discord-responses};
-    use shared-types.{host-error};
+    use shared-types.{host-error, uuid};
 
-    // TODO: Make registrations seamless (e.g. reg modal string ("alpha bravo" == call value)
-    // -> How to guarantee uniqueness per plugin?
-    //  => Keep UUIDs in some format, but implement the database storing hostside.
     @since(version = 0.1.0)
     register: func(registrations: discord-registrations) -> result<discord-registrations-result, host-error>;
     @since(version = 0.1.0)
     deregister: func(deregistrations: discord-deregistrations) -> result<discord-deregistrations-result, host-error>;
+
+    @since(version = 0.1.0)
+    get-discord-message-component-id: func(name: string) -> result<option<uuid>, host-error>;
+    @since(version = 0.1.0)
+    get-discord-modal-id: func(name: string) -> result<option<uuid>, host-error>;
 
     @since(version = 0.1.0)
     discord-request: func(request: discord-requests) -> result<option<discord-responses>, host-error>;

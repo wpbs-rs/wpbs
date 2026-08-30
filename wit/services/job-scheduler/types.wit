@@ -8,13 +8,16 @@ interface job-scheduler-types {
     use shared-types.{host-error};
 
     @since(version = 0.1.0)
-    type registrations = list<string>;
+    type cron = string;
 
     @since(version = 0.1.0)
-    type registrations-result = map<string, result<string, host-error>>;
+    type registrations = list<cron>;
 
     @since(version = 0.1.0)
-    type deregistrations = list<string>;
+    type registrations-result = map<string, result<_, host-error>>;
+
+    @since(version = 0.1.0)
+    type deregistrations = list<cron>;
 
     @since(version = 0.1.0)
     type deregistrations-result = map<string, result<_, host-error>>;

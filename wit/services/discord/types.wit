@@ -5,7 +5,7 @@ use wpbs:shared/shared-types@0.1.0;
 
 @since(version = 0.1.0)
 interface discord-types {
-    use shared-types.{host-error, json, plugin-error};
+    use shared-types.{host-error, json, plugin-error, uuid};
 
     @since(version = 0.1.0)
     type snowflake = u64;
@@ -22,7 +22,6 @@ interface discord-types {
         thread-update,
     }
 
-    // Registrations
     @since(version = 0.1.0)
     record discord-registrations {
         events: option<discord-registrations-events>,
@@ -35,30 +34,26 @@ interface discord-types {
     @since(version = 0.1.0)
     record discord-registrations-interactions {
         application-commands: option<list<json>>,
-        // TODO: Make string
-        message-components: option<u16>,
-        modals: option<u16>,
+        message-components: option<list<string>>,
+        modals: option<list<string>>,
     }
 
-    // Registrations Result
     @since(version = 0.1.0)
     record discord-registrations-result {
         events: option<discord-registrations-events-result>,
         interactions: option<discord-registrations-interactions-result>,
     }
 
-    // Map keys can only be component model primitives
     @since(version = 0.1.0)
     type discord-registrations-events-result = result<list<tuple<discord-event-kinds, result<_, host-error>>>, host-error>;
 
     @since(version = 0.1.0)
     record discord-registrations-interactions-result {
         application-commands: option<result<_, host-error>>,
-        message-components: option<result<list<string>, host-error>>,
-        modals: option<result<list<string>, host-error>>,
+        message-components: option<result<map<string, uuid>, host-error>>,
+        modals: option<result<map<string, uuid>, host-error>>,
     }
 
-    // Deregistrations
     @since(version = 0.1.0)
     record discord-deregistrations {
         events: option<discord-deregistrations-events>,
@@ -75,7 +70,6 @@ interface discord-types {
         modals: option<list<string>>,
     }
 
-    // Deregistrations Result
     @since(version = 0.1.0)
     record discord-deregistrations-result {
         events: option<discord-deregistrations-events-result>,
@@ -83,25 +77,22 @@ interface discord-types {
     }
 
     @since(version = 0.1.0)
-    type discord-deregistrations-events-result = list<tuple<discord-event-kinds, result<_, host-error>>>;
+    type discord-deregistrations-events-result = result<list<tuple<discord-event-kinds, result<_, host-error>>>, host-error>;
 
     @since(version = 0.1.0)
     record discord-deregistrations-interactions-result {
-        application-commands: option<result<list<string>, host-error>>,
-        message-components: option<result<list<string>, host-error>>,
-        modals: option<result<list<string>, host-error>>,
+        application-commands: option<result<map<string, result<_, host-error>>, host-error>>,
+        message-components: option<result<map<string, result<_, host-error>>, host-error>>,
+        modals: option<result<map<string, result<_, host-error>>, host-error>>,
     }
 
-    // Discord Requests
     @since(version = 0.1.0)
     variant discord-requests {
-        // Gateway commands
         request-guild-members(tuple<snowflake, json>),
         request-soundboard-sounds(list<snowflake>),
         update-voice-state(tuple<snowflake, json>),
         update-presence(json),
 
-        // HTTP operations
         add-thread-member(tuple<snowflake, snowflake>),
         edit-message(tuple<snowflake, snowflake, body>),
         create-ban(tuple<snowflake, snowflake, json>),
@@ -137,15 +128,12 @@ interface discord-types {
         buffer: list<u8>,
     }
 
-    // Discord Responses
     @since(version = 0.1.0)
     type discord-responses = json;
 
-    // Discord Application Command Registrations Result
     @since(version = 0.1.0)
     type discord-registrations-result-application-commands = map<string, result<snowflake, plugin-error>>;
 
-    // Discord Events
     @since(version = 0.1.0)
     variant discord-events {
         interaction-create(json),

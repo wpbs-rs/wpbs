@@ -64,11 +64,7 @@ impl JobSchedulerImportFunctionsHost for InternalRuntime {
                 )))
                 .unwrap();
 
-            let job_scheduler_result = receiver
-                .await
-                .unwrap()
-                .map(|job_uuid| job_uuid.to_string())
-                .map_err(|err| err.to_string());
+            let job_scheduler_result = receiver.await.unwrap().map_err(|err| err.to_string());
 
             scheduled_job_registrations_result
                 .insert(scheduled_job_registration, job_scheduler_result);
@@ -79,8 +75,45 @@ impl JobSchedulerImportFunctionsHost for InternalRuntime {
 
     async fn deregister(
         &mut self,
-        _deregistrations: Deregistrations,
+        deregistrations: Deregistrations,
     ) -> Result<DeregistrationsResult, HostError> {
-        todo!()
+        if TASKS.read().await.services.job_scheduler.is_none() {
+            return Err(HostError::from("The job scheduler service is disabled"));
+        }
+
+        if !self
+            .metadata
+            .permissions
+            .services
+            .job_scheduler
+            .contains(&PluginPermissionsJobScheduler::ScheduledJobs)
+        {
+            return Err(HostError::from(
+                "Plugin does not have the permission to deregister scheduled jobs",
+            ));
+        }
+
+        let mut scheduled_job_deregistrations_result = HashMap::new();
+
+        for scheduled_job_deregistration in deregistrations {
+            let (sender, receiver) = channel();
+
+            self.core_tx
+                .send(CoreMessages::Services(CoreMessagesServices::JobScheduler(
+                    JobSchedulerMessages::RemoveJob(
+                        self.metadata.plugin_uuid,
+                        scheduled_job_deregistration.clone(),
+                        sender,
+                    ),
+                )))
+                .unwrap();
+
+            let job_scheduler_result = receiver.await.unwrap().map_err(|err| err.to_string());
+
+            scheduled_job_deregistrations_result
+                .insert(scheduled_job_deregistration, job_scheduler_result);
+        }
+
+        Ok(scheduled_job_deregistrations_result)
     }
 }

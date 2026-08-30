@@ -18,7 +18,6 @@ interface job-scheduler-import-functions {
     use job-scheduler-types.{deregistrations, deregistrations-result, registrations, registrations-result};
     use shared-types.{host-error};
 
-    // TODO: Make registrations seamless (e.g. reg string ("0 5 4 * * *") == call value)
     @since(version = 0.1.0)
     register: func(registrations: registrations) -> result<registrations-result, host-error>;
     @since(version = 0.1.0)
@@ -27,8 +26,9 @@ interface job-scheduler-import-functions {
 
 @since(version = 0.1.0)
 interface job-scheduler-export-functions {
-    use shared-types.{plugin-error};
+    use job-scheduler-types.{cron};
+    use shared-types.{plugin-error, uuid};
 
     @since(version = 0.1.0)
-    scheduled-job: func(job-id: string) -> result<_, plugin-error>;
+    scheduled-job: func(cron: cron) -> result<_, plugin-error>;
 }

@@ -6,6 +6,9 @@ package wpbs:shared@0.1.0;
 @since(version = 0.1.0)
 interface shared-types {
     @since(version = 0.1.0)
+    type uuid = string;
+
+    @since(version = 0.1.0)
     type json = list<u8>;
 
     @since(version = 0.1.0)
