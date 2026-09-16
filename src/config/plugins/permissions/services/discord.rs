@@ -25,6 +25,7 @@ pub enum PluginPermissionsDiscordRequests {
     UpdateVoiceState,
     UpdatePresence,
     AddThreadMember,
+    EditMessage,
     CreateBan,
     CreateForumThread,
     CreateMessage,
@@ -62,6 +63,7 @@ impl From<&DiscordRequests> for PluginPermissionsDiscordRequests {
             DiscordRequests::AddThreadMember(_) => {
                 PluginPermissionsDiscordRequests::AddThreadMember
             }
+            DiscordRequests::EditMessage(_) => PluginPermissionsDiscordRequests::EditMessage,
             DiscordRequests::CreateBan(_) => PluginPermissionsDiscordRequests::CreateBan,
             DiscordRequests::CreateForumThread(_) => {
                 PluginPermissionsDiscordRequests::CreateForumThread
