@@ -87,6 +87,7 @@ interface discord-import-types {
 
         // HTTP operations
         add-thread-member(tuple<snowflake, snowflake>),
+        edit-message(tuple<snowflake, snowflake, body>),
         create-ban(tuple<snowflake, snowflake, json>),
         create-forum-thread(tuple<snowflake, body>),
         create-message(tuple<snowflake, body>),

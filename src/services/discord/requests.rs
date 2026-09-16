@@ -125,6 +125,34 @@ impl Discord {
                     }
                 }
             }
+            DiscordRequests::EditMessage((channel_id, message_id, body)) => {
+                let request_builder = Request::builder(&Route::UpdateMessage {
+                    channel_id,
+                    message_id,
+                });
+
+                let request_builder = match body {
+                    Body::Json(bytes) => request_builder.body(bytes.into_bytes()),
+                    Body::Form(form) => {
+                        if form.boundary.len() != 15 {
+                            return Err(HostError::from(
+                                "Form boundaries should have a length of 15 bytes",
+                            ));
+                        }
+
+                        request_builder.multipart(form.boundary.try_into().unwrap(), form.buffer)
+                    }
+                };
+
+                match request_builder.build() {
+                    Ok(request) => Some(request),
+                    Err(err) => {
+                        return Err(format!(
+                            "Something went wrong while building a Discord request, error: {err}"
+                        ));
+                    }
+                }
+            }
             DiscordRequests::CreateBan((guild_id, user_id, body)) => {
                 match Request::builder(&Route::CreateBan { guild_id, user_id })
                     .body(body.into_bytes())
