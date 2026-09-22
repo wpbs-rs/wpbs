@@ -22,10 +22,7 @@ impl PluginPermissions {
     pub fn calculate(&mut self, restricted: bool) {
         if self.core.contains(&PluginPermissionsCore::All) || (self.core.is_empty() && !restricted)
         {
-            self.core = vec![
-                PluginPermissionsCore::DependencyFunctions,
-                PluginPermissionsCore::Shutdown,
-            ];
+            self.core = vec![PluginPermissionsCore::Shutdown];
         }
 
         self.services.calculate(restricted);

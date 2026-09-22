@@ -1,0 +1,19 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
+/* Copyright © 2026 Eduard Smet */
+
+package wpbs:shared@0.1.0;
+
+@since(version = 0.1.0)
+interface shared-types {
+    @since(version = 0.1.0)
+    type uuid = string;
+
+    @since(version = 0.1.0)
+    type json = list<u8>;
+
+    @since(version = 0.1.0)
+    type host-error = string;
+
+    @since(version = 0.1.0)
+    type plugin-error = string;
+}

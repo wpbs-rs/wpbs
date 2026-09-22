@@ -3,8 +3,8 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::runtime::plugins::wpbs::plugin::discord_import_types::{
-    DiscordEventKinds, DiscordRequests,
+use crate::runtime::plugins::bindings::services::discord::wpbs_services::discord::{
+    discord_import_functions::DiscordRequests, discord_types::DiscordEventKinds,
 };
 
 #[derive(Default, Deserialize, Serialize)]
@@ -25,6 +25,7 @@ pub enum PluginPermissionsDiscordRequests {
     UpdateVoiceState,
     UpdatePresence,
     AddThreadMember,
+    EditMessage,
     CreateBan,
     CreateForumThread,
     CreateMessage,
@@ -62,6 +63,7 @@ impl From<&DiscordRequests> for PluginPermissionsDiscordRequests {
             DiscordRequests::AddThreadMember(_) => {
                 PluginPermissionsDiscordRequests::AddThreadMember
             }
+            DiscordRequests::EditMessage(_) => PluginPermissionsDiscordRequests::EditMessage,
             DiscordRequests::CreateBan(_) => PluginPermissionsDiscordRequests::CreateBan,
             DiscordRequests::CreateForumThread(_) => {
                 PluginPermissionsDiscordRequests::CreateForumThread
