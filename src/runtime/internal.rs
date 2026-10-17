@@ -6,10 +6,7 @@ use std::sync::Arc;
 use fjall::Database;
 use tokio::sync::mpsc::UnboundedSender;
 use wasmtime_wasi::{ResourceTable, WasiCtx, WasiCtxView, WasiView};
-use wasmtime_wasi_http::{
-    WasiHttpCtx,
-    p2::{WasiHttpCtxView, WasiHttpView},
-};
+use wasmtime_wasi_http::{WasiHttpCtx, WasiHttpCtxView, WasiHttpView};
 
 mod core;
 mod services;
