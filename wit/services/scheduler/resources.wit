@@ -1,0 +1,65 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
+/* Copyright © 2026 Eduard Smet */
+
+use wpbs:shared/shared-types@0.1.0;
+
+/// Provides handles for registering, updating, and deregistering scheduled
+/// jobs.
+@since(version = 0.1.0)
+interface resources {
+    use shared-types.{host-error};
+
+    /// A handle to a job identified by a key.
+    ///
+    /// Handles with the same key refer to the same job.
+    ///
+    /// Constructing a handle does not register the job to a schedule. Dropping
+    /// a handle does not deregister the job from its schedule.
+    ///
+    /// Scheduled executions invoke the exported `job` callback with this key.
+    @since(version = 0.1.0)
+    resource job {
+        /// Creates a handle to the job identified by the provided key.
+        @since(version = 0.1.0)
+        constructor(key: string);
+
+        /// Registers a job to a schedule.
+        ///
+        /// Schedules use [cron expressions](https://docs.rs/cron/0.17.0/cron/)
+        /// in the system's local time zone. Full expressions require a leading
+        /// seconds field and allow an optional trailing year field. Shorthands
+        /// such as `@daily` are also supported.
+        ///
+        /// A failed registration leaves any existing schedule unchanged.
+        ///
+        /// Returns an error if:
+        /// - The scheduler service is disabled.
+        /// - The provided cron expression is invalid.
+        /// - The job is already registered to a schedule, use the `update`
+        ///   method in this case.
+        @since(version = 0.1.0)
+        register: async func(expression: string) -> result<_, host-error>;
+
+        /// Updates a job to a new schedule.
+        ///
+        /// See the `register` method for more information on the cron
+        /// expression.
+        ///
+        /// A job preserves its old schedule if this method fails.
+        ///
+        /// Returns an error if:
+        /// - The scheduler service is disabled.
+        /// - The provided cron expression is invalid.
+        /// - The job is not registered to a schedule.
+        @since(version = 0.1.0)
+        update: async func(expression: string) -> result<_, host-error>;
+
+        /// Deregisters a job from a schedule.
+        ///
+        /// Returns an error if:
+        /// - The scheduler service is disabled.
+        /// - The job is not registered to a schedule.
+        @since(version = 0.1.0)
+        deregister: async func() -> result<_, host-error>;
+    }
+}

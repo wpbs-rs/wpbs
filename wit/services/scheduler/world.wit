@@ -1,0 +1,14 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
+/* Copyright © 2026 Eduard Smet */
+
+package wpbs-services:scheduler@0.1.0;
+
+/// Provides job scheduling through cron expressions and callbacks.
+@since(version = 0.1.0)
+world scheduler {
+    @since(version = 0.1.0)
+    import resources;
+
+    @since(version = 0.1.0)
+    export export-functions;
+}

@@ -1,0 +1,91 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
+/* Copyright © 2026 Eduard Smet */
+
+use wpbs:shared/shared-types@0.1.0;
+
+@since(version = 0.1.0)
+interface resources {
+    use shared-types.{host-error, json};
+    use types.{body as request-body, event-kind, route, snowflake};
+
+    @since(version = 0.1.0)
+    resource request {
+        @since(version = 0.1.0)
+        constructor(route: route);
+
+        @since(version = 0.1.0)
+        body: async func(body: request-body);
+
+        @since(version = 0.1.0)
+        headers: async func(headers: map<string, string>);
+    }
+
+    @since(version = 0.1.0)
+    resource event-subscription {
+        @since(version = 0.1.0)
+        constructor();
+
+        @since(version = 0.1.0)
+        register: async func(kinds: list<event-kind>) -> result<_, host-error>;
+
+        @since(version = 0.1.0)
+        update: async func(kinds: list<event-kind>) -> result<_, host-error>;
+
+        @since(version = 0.1.0)
+        deregister: async func() -> result<_, host-error>;
+    }
+
+    @since(version = 0.1.0)
+    resource application-command {
+        @since(version = 0.1.0)
+        constructor(key: string);
+
+        @since(version = 0.1.0)
+        register: async func(
+            guild-id: option<snowflake>,
+            data: json,
+        ) -> result<_, host-error>;
+
+        @since(version = 0.1.0)
+        update: async func(data: json) -> result<_, host-error>;
+
+        @since(version = 0.1.0)
+        deregister: async func() -> result<_, host-error>;
+    }
+
+    @since(version = 0.1.0)
+    resource message-component {
+        @since(version = 0.1.0)
+        constructor(key: string);
+
+        @since(version = 0.1.0)
+        register: async func() -> result<_, host-error>;
+
+        @since(version = 0.1.0)
+        update: async func() -> result<_, host-error>;
+
+        @since(version = 0.1.0)
+        custom-id: async func() -> result<string, host-error>;
+
+        @since(version = 0.1.0)
+        deregister: async func() -> result<_, host-error>;
+    }
+
+    @since(version = 0.1.0)
+    resource modal {
+        @since(version = 0.1.0)
+        constructor(key: string);
+
+        @since(version = 0.1.0)
+        register: async func() -> result<_, host-error>;
+
+        @since(version = 0.1.0)
+        update: async func() -> result<_, host-error>;
+
+        @since(version = 0.1.0)
+        custom-id: async func() -> result<string, host-error>;
+
+        @since(version = 0.1.0)
+        deregister: async func() -> result<_, host-error>;
+    }
+}

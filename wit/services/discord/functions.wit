@@ -1,0 +1,22 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
+/* Copyright © 2026 Eduard Smet */
+
+use wpbs:shared/shared-types@0.1.0;
+
+@since(version = 0.1.0)
+interface import-functions {
+    use shared-types.{host-error, json};
+    use resources.{request as request-data};
+
+    @since(version = 0.1.0)
+    request: async func(request: request-data) -> result<json, host-error>;
+}
+
+@since(version = 0.1.0)
+interface export-functions {
+    use shared-types.{plugin-error};
+    use types.{event-data};
+
+    @since(version = 0.1.0)
+    event: async func(event: event-data) -> result<_, plugin-error>;
+}

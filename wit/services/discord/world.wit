@@ -1,0 +1,14 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
+/* Copyright © 2026 Eduard Smet */
+
+package wpbs-services:discord@0.1.0;
+
+@since(version = 0.1.0)
+world discord {
+    @since(version = 0.1.0)
+    import resources;
+    @since(version = 0.1.0)
+    import import-functions;
+    @since(version = 0.1.0)
+    export export-functions;
+}

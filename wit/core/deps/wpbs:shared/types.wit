@@ -1,0 +1,29 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
+/* Copyright © 2026 Eduard Smet */
+
+package wpbs:shared@0.1.0;
+
+/// Provides shared payload and error types.
+@since(version = 0.1.0)
+interface shared-types {
+    /// A JSON value encoded as UTF-8 bytes.
+    @since(version = 0.1.0)
+    type json = list<u8>;
+
+    /// A failure reported by a host operation.
+    @since(version = 0.1.0)
+    variant host-error {
+        already-exists,
+        internal,
+        invalid-argument,
+        not-found,
+        permission-denied,
+        timed-out,
+        unavailable,
+        other(string),
+    }
+
+    /// A failure reported by a plugin callback.
+    @since(version = 0.1.0)
+    type plugin-error = string;
+}

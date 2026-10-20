@@ -1,0 +1,17 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
+/* Copyright © 2026 Eduard Smet */
+
+package wpbs:core@0.1.0;
+
+/// Provides logging, persistent storage, and plugin and host lifecycle
+/// operations.
+@since(version = 0.1.0)
+world core {
+    @since(version = 0.1.0)
+    include wasi:keyvalue/imports@0.2.0-draft2;
+
+    @since(version = 0.1.0)
+    import import-functions;
+    @since(version = 0.1.0)
+    export export-functions;
+}

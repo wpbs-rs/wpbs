@@ -1,0 +1,41 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
+/* Copyright © 2026 Eduard Smet */
+
+use wpbs:shared/shared-types@0.1.0;
+
+/// Provides logging and host shutdown requests.
+@since(version = 0.1.0)
+interface import-functions {
+    use shared-types.{host-error};
+    use types.{log-level, shutdown-action};
+
+    /// Logs a message at the provided level.
+    @since(version = 0.1.0)
+    log: async func(level: log-level, message: string);
+
+    /// Requests graceful host shutdown or restart.
+    ///
+    /// Success means the request is accepted.
+    ///
+    /// Returns an error if the plugin does not have shutdown permission.
+    @since(version = 0.1.0)
+    shutdown: async func(action: shutdown-action) -> result<_, host-error>;
+}
+
+/// Provides plugin initialization and cleanup callbacks.
+@since(version = 0.1.0)
+interface export-functions {
+    use shared-types.{json, plugin-error};
+
+    /// Initializes the plugin with the provided settings.
+    ///
+    /// Called once during startup.
+    @since(version = 0.1.0)
+    initialization: async func(settings: json) -> result<_, plugin-error>;
+
+    /// Performs final cleanup for the plugin.
+    ///
+    /// Called during graceful shutdown.
+    @since(version = 0.1.0)
+    shutdown: async func() -> result<_, plugin-error>;
+}

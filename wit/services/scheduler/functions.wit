@@ -1,0 +1,16 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
+/* Copyright © 2026 Eduard Smet */
+
+use wpbs:shared/shared-types@0.1.0;
+
+/// Provides callbacks invoked by the host to execute scheduled jobs.
+@since(version = 0.1.0)
+interface export-functions {
+    use shared-types.{plugin-error};
+
+    /// Executes the job identified by the provided key.
+    ///
+    /// Called when the job's schedule triggers.
+    @since(version = 0.1.0)
+    job: async func(key: string) -> result<_, plugin-error>;
+}

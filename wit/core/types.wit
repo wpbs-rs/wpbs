@@ -1,0 +1,23 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
+/* Copyright © 2026 Eduard Smet */
+
+/// Provides logging levels and host shutdown actions.
+@since(version = 0.1.0)
+interface types {
+    /// A severity level for a log message.
+    @since(version = 0.1.0)
+    enum log-level {
+        trace,
+        debug,
+        info,
+        warn,
+        error,
+    }
+
+    /// A host shutdown action.
+    @since(version = 0.1.0)
+    enum shutdown-action {
+        stop,
+        restart,
+    }
+}
