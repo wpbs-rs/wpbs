@@ -6,6 +6,5 @@ use serde::{Deserialize, Serialize};
 #[derive(Deserialize, PartialEq, Serialize)]
 pub enum PluginPermissionsCore {
     All,
-    DependencyFunctions,
     Shutdown,
 }

@@ -3,8 +3,8 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::runtime::plugins::wpbs::plugin::discord_import_types::{
-    DiscordEventKinds, DiscordRequests,
+use crate::runtime::plugins::bindings::services::discord::wpbs_services::discord::{
+    discord_import_functions::DiscordRequests, discord_types::DiscordEventKinds,
 };
 
 #[derive(Default, Deserialize, Serialize)]
